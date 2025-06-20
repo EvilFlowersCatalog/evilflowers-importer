@@ -12,6 +12,64 @@ from tqdm import tqdm
 # Set up logging
 logger = logging.getLogger(__name__)
 
+def create_parquet_file(directories_metadata, output_path):
+    """
+    Create a Parquet file with book metadata.
+
+    Args:
+        directories_metadata (list): List of metadata dictionaries
+        output_path (str): Path to the output Parquet file
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    logger.info(f"Creating Parquet file: {output_path}")
+
+    try:
+        # Create a progress bar for Parquet file creation
+        with tqdm(total=3, desc="Creating Parquet file") as pbar:
+            # Create a copy of the metadata without the full_text field
+            clean_metadata = []
+
+            # Use a nested progress bar for cleaning metadata
+            with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
+                for metadata in directories_metadata:
+                    clean_metadata_item = metadata.copy()
+                    # Remove full_text field if it exists to avoid large files
+                    if 'full_text' in clean_metadata_item:
+                        del clean_metadata_item['full_text']
+
+                    # Convert authors list to semicolon-separated string
+                    if 'authors' in clean_metadata_item and isinstance(clean_metadata_item['authors'], list):
+                        clean_metadata_item['authors'] = '; '.join(clean_metadata_item['authors'])
+
+                    clean_metadata.append(clean_metadata_item)
+                    clean_pbar.update(1)
+
+            pbar.update(1)
+            pbar.set_description("Creating DataFrame")
+
+            # Create a DataFrame from the clean metadata
+            df = pd.DataFrame(clean_metadata)
+
+            # Ensure dirname (directory path) is the first column
+            if 'dirname' in df.columns:
+                cols = ['dirname'] + [col for col in df.columns if col != 'dirname']
+                df = df[cols]
+
+            pbar.update(1)
+
+            pbar.set_description("Writing to Parquet")
+            # Write to Parquet
+            df.to_parquet(output_path, index=False)
+            pbar.update(1)
+
+        logger.info(f"Parquet file created successfully: {output_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create Parquet file: {e}")
+        raise
+
 def create_excel_file(directories_metadata, output_path):
     """
     Create an Excel file with book metadata.
@@ -38,6 +96,11 @@ def create_excel_file(directories_metadata, output_path):
                     # Remove full_text field if it exists to avoid large Excel files
                     if 'full_text' in clean_metadata_item:
                         del clean_metadata_item['full_text']
+
+                    # Convert authors list to semicolon-separated string
+                    if 'authors' in clean_metadata_item and isinstance(clean_metadata_item['authors'], list):
+                        clean_metadata_item['authors'] = '; '.join(clean_metadata_item['authors'])
+
                     clean_metadata.append(clean_metadata_item)
                     clean_pbar.update(1)
 
@@ -46,6 +109,12 @@ def create_excel_file(directories_metadata, output_path):
 
             # Create a DataFrame from the clean metadata
             df = pd.DataFrame(clean_metadata)
+
+            # Ensure dirname (directory path) is the first column
+            if 'dirname' in df.columns:
+                cols = ['dirname'] + [col for col in df.columns if col != 'dirname']
+                df = df[cols]
+
             pbar.update(1)
 
             pbar.set_description("Writing to Excel")

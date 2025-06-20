@@ -8,11 +8,13 @@ import os
 import re
 import logging
 import json
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, Optional, List, Dict, Any, Tuple
 import openai
 from tqdm import tqdm
 import tiktoken
 from tiktoken import encoding_for_model
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -25,45 +27,104 @@ class BookMetadata(TypedDict):
     year: Optional[str]
     isbn: Optional[str]
     doi: Optional[str]
+    llm_isbn: Optional[str]  # ISBN extracted using LLM
+    llm_doi: Optional[str]   # DOI extracted using LLM
     summary: str
 
 
 class RegexExtractor:
     """Class for extracting metadata using regular expressions."""
 
-    # Regex patterns for ISBN and DOI
-    ISBN_PATTERN = re.compile(r"\b(?:ISBN(?:-13)?:?\s*)?((97[89][- ]?)?\d{1,5}[- ]?\d{1,7}[- ]?\d{1,7}[- ]?[\dXx])\b")
+    # Improved regex patterns for ISBN and DOI
+    # ISBN pattern that matches both ISBN-10 and ISBN-13 formats with simpler approach
+    ISBN_PATTERN = re.compile(r"\b(?:ISBN(?:-1[03])?:?\s*)?(?:97[89][-\s]?\d{1,5}[-\s]?\d{1,7}[-\s]?\d{1,7}[-\s]?\d|(?:\d{1,5}[-\s]?\d{1,7}[-\s]?\d{1,7}[-\s]?[\dX]))\b", re.I)
+
+    # DOI pattern with more comprehensive matching
     DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.I)
 
     @classmethod
     def extract_isbn(cls, text: str) -> Optional[str]:
-        """Extract ISBN from text using regex."""
+        """
+        Extract ISBN from text using regex.
+        Handles both ISBN-10 and ISBN-13 formats with various separators.
+        """
         match = cls.ISBN_PATTERN.search(text)
-        return match.group(1) if match else None
+        if not match:
+            return None
+
+        # Clean up the ISBN by removing spaces and hyphens
+        isbn = match.group(0)
+        if "ISBN" in isbn:
+            # Remove the "ISBN" prefix if present
+            isbn = re.sub(r'^ISBN[-:]?\s*', '', isbn, flags=re.I)
+
+        # Remove all spaces and hyphens
+        isbn = re.sub(r'[\s-]', '', isbn)
+
+        return isbn
 
     @classmethod
     def extract_doi(cls, text: str) -> Optional[str]:
-        """Extract DOI from text using regex."""
+        """
+        Extract DOI from text using regex.
+        Handles standard DOI format (10.xxxx/yyyy).
+        """
         match = cls.DOI_PATTERN.search(text)
-        return match.group(0) if match else None
+        if not match:
+            return None
+
+        # Return the cleaned DOI
+        doi = match.group(0)
+        # Ensure DOI is lowercase as per standard
+        return doi.lower()
 
 
 class TextChunker:
     """Class for chunking text into manageable pieces."""
 
-    def __init__(self, model_name: str = "gpt-4o"):
+    def __init__(self, model_name: str = "gpt-4o", max_workers: int = None):
         """
         Initialize the text chunker.
 
         Args:
             model_name (str): The name of the model to use for token counting.
+            max_workers (int, optional): Maximum number of worker threads for parallel processing.
+                If None, it will use the default value from ThreadPoolExecutor.
         """
         self.model_name = model_name
         self.encoder = encoding_for_model(model_name)
+        self.max_workers = max_workers
+        # Calculate actual number of workers to use
+        self.actual_workers = self.max_workers if self.max_workers is not None else os.cpu_count() or 4
+        logger.info(f"TextChunker initialized with {self.actual_workers} worker threads")
 
-    def chunk_text(self, pages: Dict[int, str], max_tokens: int = 3500) -> List[str]:
+    def _process_page_chunk(self, pages_chunk: List[Tuple[int, str]], max_tokens: int) -> List[str]:
         """
-        Chunk text into manageable pieces based on token count.
+        Process a chunk of pages and create text chunks based on token count.
+
+        Args:
+            pages_chunk (List[Tuple[int, str]]): List of (page_num, text) tuples to process.
+            max_tokens (int): Maximum number of tokens per chunk.
+
+        Returns:
+            List[str]: List of text chunks from the processed pages.
+        """
+        current, chunks = "", []
+
+        for page_num, text in pages_chunk:
+            if len(self.encoder.encode(current + text)) > max_tokens:
+                chunks.append(current)
+                current = ""
+            current += text + "\n"
+
+        if current:
+            chunks.append(current)
+
+        return chunks
+
+    def chunk_text_parallel(self, pages: Dict[int, str], max_tokens: int = 3500) -> List[str]:
+        """
+        Chunk text into manageable pieces based on token count using parallel processing.
 
         Args:
             pages (dict): Dictionary of page numbers to page content.
@@ -72,38 +133,87 @@ class TextChunker:
         Returns:
             List[str]: List of text chunks.
         """
-        current, chunks = "", []
         sorted_pages = sorted(pages)
         total_pages = len(sorted_pages)
 
-        # Create a progress bar for text chunking
-        with tqdm(total=total_pages, desc="Chunking text", leave=False) as pbar:
-            for page_num in sorted_pages:
-                text = pages[page_num]
-                if len(self.encoder.encode(current + text)) > max_tokens:
-                    chunks.append(current)
-                    current = ""
-                current += text + "\n"
-                pbar.update(1)
+        # Log information about the parallelism
+        logger.info(f"Chunking {total_pages} pages using {self.actual_workers} worker threads")
 
-        if current:
-            chunks.append(current)
-        return chunks
+        # Convert pages dict to list of (page_num, text) tuples
+        pages_list = [(page_num, pages[page_num]) for page_num in sorted_pages]
+
+        # Determine chunk size for parallel processing
+        # Each worker will process approximately this many pages
+        chunk_size = max(1, total_pages // self.actual_workers)
+
+        # Split pages into chunks for parallel processing
+        page_chunks = [pages_list[i:i + chunk_size] for i in range(0, len(pages_list), chunk_size)]
+
+        # Log information about the chunks
+        logger.info(f"Split {total_pages} pages into {len(page_chunks)} chunks (approx. {chunk_size} pages per worker)")
+
+        all_chunks = []
+
+        # Create a progress bar for parallel text chunking
+        with tqdm(total=total_pages, desc=f"Chunking text with {self.actual_workers} workers", leave=False) as pbar:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit tasks to the executor
+                future_to_chunk = {
+                    executor.submit(self._process_page_chunk, chunk, max_tokens): chunk 
+                    for chunk in page_chunks
+                }
+
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_to_chunk):
+                    chunk = future_to_chunk[future]
+                    try:
+                        result = future.result()
+                        all_chunks.extend(result)
+                        # Update progress bar based on the number of pages in this chunk
+                        pbar.update(len(chunk))
+                    except Exception as exc:
+                        logger.error(f"Chunk processing generated an exception: {exc}")
+                        # Still update the progress bar even on error
+                        pbar.update(len(chunk))
+
+        logger.info(f"Created {len(all_chunks)} text chunks from {total_pages} pages")
+        return all_chunks
+
+    def chunk_text(self, pages: Dict[int, str], max_tokens: int = 3500) -> List[str]:
+        """
+        Chunk text into manageable pieces based on token count.
+        This method now uses parallel processing by default.
+
+        Args:
+            pages (dict): Dictionary of page numbers to page content.
+            max_tokens (int): Maximum number of tokens per chunk.
+
+        Returns:
+            List[str]: List of text chunks.
+        """
+        # Use parallel chunking by default
+        return self.chunk_text_parallel(pages, max_tokens)
 
 
 class Summarizer:
     """Class for summarizing text using OpenAI API."""
 
-    def __init__(self, api_key: str, model_name: str = "gpt-4o"):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o", max_workers: int = None):
         """
         Initialize the summarizer.
 
         Args:
             api_key (str): OpenAI API key.
             model_name (str): The name of the model to use for summarization.
+            max_workers (int, optional): Maximum number of worker threads for parallel processing.
+                If None, it will use the default value from ThreadPoolExecutor.
         """
         self.api_key = api_key
         self.model_name = model_name
+        self.max_workers = max_workers
+        # Calculate actual number of workers to use
+        self.actual_workers = self.max_workers if self.max_workers is not None else os.cpu_count() or 4
+        logger.info(f"Summarizer initialized with {self.actual_workers} worker threads")
 
     def summarize_chunk(self, chunk: str) -> str:
         """
@@ -151,10 +261,50 @@ class Summarizer:
         )
         return response.choices[0].message.content.strip()
 
+    def _summarize_chunks_parallel(self, chunks: List[str]) -> List[str]:
+        """
+        Summarize multiple chunks in parallel.
+
+        Args:
+            chunks (List[str]): List of text chunks to summarize.
+
+        Returns:
+            List[str]: List of summarized chunks.
+        """
+        logger.info(f"Summarizing {len(chunks)} chunks in parallel with {self.actual_workers} workers")
+        summaries = []
+
+        with tqdm(total=len(chunks), desc=f"Summarizing chunks with {self.actual_workers} workers", leave=False) as pbar:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit tasks to the executor
+                future_to_chunk = {
+                    executor.submit(self.summarize_chunk, chunk): i 
+                    for i, chunk in enumerate(chunks)
+                }
+
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_to_chunk):
+                    chunk_idx = future_to_chunk[future]
+                    try:
+                        result = future.result()
+                        # Store the result in the correct order
+                        summaries.append((chunk_idx, result))
+                        pbar.update(1)
+                    except Exception as exc:
+                        logger.error(f"Chunk {chunk_idx} summarization generated an exception: {exc}")
+                        # Add an empty summary to maintain order
+                        summaries.append((chunk_idx, ""))
+                        pbar.update(1)
+
+        # Sort summaries by chunk index and extract just the summaries
+        summaries.sort(key=lambda x: x[0])
+        return [summary for _, summary in summaries]
+
     def recursive_summarize(self, chunks: List[str], target_words: int = 120, max_depth: int = 3, current_depth: int = 0) -> str:
         """
         Recursively summarize text chunks until they can fit into a single prompt,
         then perform a final summarization to reach the target word count.
+        Uses parallel processing for summarizing chunks.
 
         Args:
             chunks (List[str]): List of text chunks to summarize.
@@ -175,12 +325,11 @@ class Summarizer:
             # Perform final summarization to reach target word count
             return self.final_summarize(chunks[0], target_words)
 
-        # Create a progress bar for summarizing chunks
-        with tqdm(total=len(chunks), desc="Summarizing chunks", leave=False) as pbar:
-            summaries = []
-            for chunk in chunks:
-                summaries.append(self.summarize_chunk(chunk))
-                pbar.update(1)
+        # Log information about the current recursion level
+        logger.info(f"Recursive summarization depth {current_depth}: processing {len(chunks)} chunks")
+
+        # Summarize chunks in parallel
+        summaries = self._summarize_chunks_parallel(chunks)
 
         # Combine summaries
         summary_text = "\n".join(summaries)
@@ -203,7 +352,7 @@ class Summarizer:
                 return self.final_summarize(summary_text, target_words)
 
             # Create a progress bar for recursive summarization
-            with tqdm(total=1, desc="Recursive summarization", leave=False) as pbar:
+            with tqdm(total=1, desc=f"Recursive summarization depth {current_depth+1}", leave=False) as pbar:
                 result = self.recursive_summarize(next_chunks, target_words, max_depth, current_depth + 1)
                 pbar.update(1)
             return result
@@ -257,17 +406,23 @@ class MetadataExtractor:
 class BookProcessor:
     """Class for processing books and extracting metadata."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, max_workers: int = None):
         """
         Initialize the book processor.
 
         Args:
             api_key (str): OpenAI API key.
+            max_workers (int, optional): Maximum number of worker threads for parallel processing.
+                If None, it will use the default value from ThreadPoolExecutor.
         """
         self.api_key = api_key
+        self.max_workers = max_workers
+        # Log information about the parallelism
+        logger.info(f"BookProcessor initialized with max_workers={max_workers}")
+
         self.regex_extractor = RegexExtractor()
-        self.text_chunker = TextChunker()
-        self.summarizer = Summarizer(api_key)
+        self.text_chunker = TextChunker(max_workers=max_workers)
+        self.summarizer = Summarizer(api_key, max_workers=max_workers)
         self.metadata_extractor = MetadataExtractor(api_key)
 
     def process_book(self, pages: Dict[int, str]) -> BookMetadata:
@@ -280,27 +435,40 @@ class BookProcessor:
         Returns:
             BookMetadata: Extracted book metadata.
         """
+        # Log information about the book being processed
+        total_pages = len(pages)
+        logger.info(f"Processing book with {total_pages} pages using {self.max_workers} worker threads")
+
         # Create a progress bar for the overall book processing
-        with tqdm(total=4, desc="Processing book", leave=False) as pbar:
+        with tqdm(total=4, desc=f"Processing book ({total_pages} pages)", leave=False) as pbar:
             # Use first 3 pages for metadata (usually enough)
             first_pages = "\n".join([pages[k] for k in sorted(pages)[:3]])
             pbar.update(1)
 
             # LLM-based metadata
-            pbar.set_description("Extracting metadata")
+            pbar.set_description(f"Extracting metadata from first 3 pages")
             llm_metadata = self.metadata_extractor.extract_metadata(first_pages)
             pbar.update(1)
 
-            # Regex fallback
-            pbar.set_description("Extracting ISBN/DOI")
+            # Extract ISBN/DOI using regex from full text
+            pbar.set_description(f"Extracting ISBN/DOI from full text")
             text_full = "\n".join([pages[k] for k in sorted(pages)])
-            isbn = self.regex_extractor.extract_isbn(text_full) or llm_metadata.get("isbn")
-            doi = self.regex_extractor.extract_doi(text_full) or llm_metadata.get("doi")
+            regex_isbn = self.regex_extractor.extract_isbn(text_full)
+            regex_doi = self.regex_extractor.extract_doi(text_full)
+
+            # Get LLM-extracted ISBN/DOI
+            llm_isbn = llm_metadata.get("isbn")
+            llm_doi = llm_metadata.get("doi")
+
+            # Use regex as primary method with LLM as fallback for the main fields
+            isbn = regex_isbn or llm_isbn
+            doi = regex_doi or llm_doi
             pbar.update(1)
 
-            # Recursive summary
-            pbar.set_description("Generating summary")
+            # Recursive summary with parallel processing
+            pbar.set_description(f"Generating summary with {self.max_workers} workers")
             chunks = self.text_chunker.chunk_text(pages)
+            logger.info(f"Created {len(chunks)} chunks for summarization")
             summary = self.summarizer.recursive_summarize(chunks)
             pbar.update(1)
 
@@ -311,23 +479,33 @@ class BookProcessor:
             year=llm_metadata.get("year"),
             isbn=isbn,
             doi=doi,
+            llm_isbn=llm_isbn,
+            llm_doi=llm_doi,
             summary=summary
         )
 
 class AIExtractor:
     """AI-based metadata extractor using OpenAI API."""
 
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, max_workers=None):
         """
         Initialize the AI extractor with OpenAI API.
 
         Args:
             api_key (str, optional): OpenAI API key. If not provided, it will be read from the OPENAI_API_KEY environment variable.
+            max_workers (int, optional): Maximum number of worker threads for parallel processing.
+                If None, it will use the default value from ThreadPoolExecutor.
         """
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
             logger.warning("No OpenAI API key provided. Please set the OPENAI_API_KEY environment variable or provide it as an argument.")
-        self.book_processor = BookProcessor(self.api_key)
+
+        self.max_workers = max_workers
+        # Calculate actual number of workers to use
+        self.actual_workers = self.max_workers if self.max_workers is not None else os.cpu_count() or 4
+        logger.info(f"AIExtractor initialized with {self.actual_workers} worker threads")
+
+        self.book_processor = BookProcessor(self.api_key, max_workers=max_workers)
 
     def extract_metadata_from_directory(self, client, directory, progress_bar=None):
         """
@@ -341,8 +519,11 @@ class AIExtractor:
         Returns:
             dict: Extracted metadata
         """
+        # Log information about the directory being processed
+        logger.info(f"Extracting metadata from directory: {directory} with {self.actual_workers} worker threads")
+
         if progress_bar:
-            progress_bar.set_description(f"Checking files in {os.path.basename(directory)}")
+            progress_bar.set_description(f"Checking files in {os.path.basename(directory)} (workers: {self.actual_workers})")
 
         # Initialize metadata with default values
         metadata = {
@@ -352,6 +533,8 @@ class AIExtractor:
             'year': '',
             'isbn': '',
             'doi': '',
+            'llm_isbn': '',  # ISBN extracted using LLM
+            'llm_doi': '',   # DOI extracted using LLM
             'summary': '',
             'cover_image': ''
         }
@@ -396,7 +579,7 @@ class AIExtractor:
                         # Update progress bar after checking files
                         if progress_bar:
                             progress_bar.update(1)
-                            progress_bar.set_description(f"Processing content from {os.path.basename(directory)}")
+                            progress_bar.set_description(f"Processing content from {os.path.basename(directory)} (workers: {self.actual_workers})")
 
                         # Load all pages into the dictionary
                         with tqdm(total=len(text_files), desc="Loading text files", leave=False) as file_pbar:
@@ -445,7 +628,7 @@ class AIExtractor:
 
             # Update progress bar for finalizing metadata
             if progress_bar:
-                progress_bar.set_description(f"Finalizing metadata for {os.path.basename(directory)}")
+                progress_bar.set_description(f"Finalizing metadata for {os.path.basename(directory)} (workers: {self.actual_workers})")
                 progress_bar.update(1)
 
             return metadata
@@ -454,5 +637,8 @@ class AIExtractor:
             if progress_bar:
                 # Ensure progress bar is updated even on error
                 if progress_bar.n < progress_bar.total:
-                    progress_bar.update(progress_bar.total - progress_bar.n)
+                    remaining_steps = progress_bar.total - progress_bar.n
+                    progress_bar.set_description(f"Error processing {os.path.basename(directory)}")
+                    progress_bar.update(remaining_steps)
+                    logger.info(f"Updated progress bar by {remaining_steps} steps due to error")
             return metadata

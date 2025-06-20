@@ -3,7 +3,7 @@
 EvilFlowers Local Book Import
 
 A CLI application for extracting book metadata from local directories
-and creating an Excel file with the results.
+and creating a Parquet file with the results.
 """
 
 import argparse
@@ -12,7 +12,7 @@ import logging
 from tqdm import tqdm
 
 from evilflowers_webdav_import.ai import AIExtractor
-from evilflowers_webdav_import.utils import create_excel_file, LocalFileSystem
+from evilflowers_webdav_import.utils import create_parquet_file, LocalFileSystem
 
 # Set up logging
 logging.basicConfig(
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Extract book metadata from local directories and create an Excel file.'
+        description='Extract book metadata from local directories and create a Parquet file.'
     )
 
     parser.add_argument(
@@ -37,7 +37,7 @@ def parse_arguments():
     parser.add_argument(
         '--output',
         required=True,
-        help='Path to the output Excel file'
+        help='Path to the output Parquet file'
     )
 
     parser.add_argument(
@@ -50,6 +50,20 @@ def parse_arguments():
         '--verbose',
         action='store_true',
         help='Enable verbose output'
+    )
+
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=None,
+        help='Number of worker threads for parallel processing. If not provided, uses the default based on CPU count.'
+    )
+
+    parser.add_argument(
+        '--limit',
+        type=int,
+        default=None,
+        help='Limit the number of directories to process. Useful for debugging.'
     )
 
     return parser.parse_args()
@@ -101,17 +115,27 @@ def main():
         # List directories
         directories = list_directories(args.input_dir)
 
+        # Limit the number of directories if specified
+        if args.limit is not None:
+            logger.info(f"Limiting to {args.limit} directories")
+            directories = directories[:args.limit]
+
         # Initialize AI extractor with OpenAI API
-        ai_extractor = AIExtractor(args.api_key)
+        ai_extractor = AIExtractor(args.api_key, max_workers=args.workers)
 
         # Extract metadata from each directory with progress bar
         directories_metadata = []
 
+        # Log information about the parallelism
+        workers_info = f" with {args.workers} workers" if args.workers else " with auto workers"
+        logger.info(f"Processing {len(directories)} directories{workers_info}")
+
         # Create a top-level progress bar for processing files
-        with tqdm(total=len(directories), desc="Processing directories") as pbar:
+        with tqdm(total=len(directories), desc=f"Processing directories{workers_info}") as pbar:
             for directory in directories:
                 # Create a nested progress bar for processing
-                with tqdm(total=1, desc=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
+                # The total is set to 3 to match the steps in extract_metadata_from_directory
+                with tqdm(total=3, desc=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
                     # Extract metadata
                     metadata = ai_extractor.extract_metadata_from_directory(client, directory, nested_pbar)
 
@@ -123,8 +147,8 @@ def main():
                 # Update the top-level progress bar
                 pbar.update(1)
 
-        # Create Excel file
-        create_excel_file(directories_metadata, args.output)
+        # Create Parquet file
+        create_parquet_file(directories_metadata, args.output)
 
         logger.info("Process completed successfully")
     except Exception as e:
