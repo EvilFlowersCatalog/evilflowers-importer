@@ -1,0 +1,6 @@
+webdavclient3
+pandas
+openpyxl
+tqdm
+openai>=1.0.0
+tiktoken

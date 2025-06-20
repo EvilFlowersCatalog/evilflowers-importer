@@ -1,0 +1,363 @@
+"""
+AI module for EvilFlowers WebDAV Book Import.
+
+This module provides functionality for using OpenAI API to extract metadata from text files.
+"""
+
+import os
+import re
+import logging
+import json
+from typing import TypedDict, Optional, List, Dict, Any
+import openai
+from tqdm import tqdm
+import tiktoken
+from tiktoken import encoding_for_model
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# TypedDict for result
+class BookMetadata(TypedDict):
+    title: Optional[str]
+    authors: List[str]
+    publisher: Optional[str]
+    year: Optional[str]
+    isbn: Optional[str]
+    doi: Optional[str]
+    summary: str
+
+
+class RegexExtractor:
+    """Class for extracting metadata using regular expressions."""
+
+    # Regex patterns for ISBN and DOI
+    ISBN_PATTERN = re.compile(r"\b(?:ISBN(?:-13)?:?\s*)?((97[89][- ]?)?\d{1,5}[- ]?\d{1,7}[- ]?\d{1,7}[- ]?[\dXx])\b")
+    DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.I)
+
+    @classmethod
+    def extract_isbn(cls, text: str) -> Optional[str]:
+        """Extract ISBN from text using regex."""
+        match = cls.ISBN_PATTERN.search(text)
+        return match.group(1) if match else None
+
+    @classmethod
+    def extract_doi(cls, text: str) -> Optional[str]:
+        """Extract DOI from text using regex."""
+        match = cls.DOI_PATTERN.search(text)
+        return match.group(0) if match else None
+
+
+class TextChunker:
+    """Class for chunking text into manageable pieces."""
+
+    def __init__(self, model_name: str = "gpt-4o"):
+        """
+        Initialize the text chunker.
+
+        Args:
+            model_name (str): The name of the model to use for token counting.
+        """
+        self.model_name = model_name
+        self.encoder = encoding_for_model(model_name)
+
+    def chunk_text(self, pages: Dict[int, str], max_tokens: int = 3500) -> List[str]:
+        """
+        Chunk text into manageable pieces based on token count.
+
+        Args:
+            pages (dict): Dictionary of page numbers to page content.
+            max_tokens (int): Maximum number of tokens per chunk.
+
+        Returns:
+            List[str]: List of text chunks.
+        """
+        current, chunks = "", []
+        for page_num in sorted(pages):
+            text = pages[page_num]
+            if len(self.encoder.encode(current + text)) > max_tokens:
+                chunks.append(current)
+                current = ""
+            current += text + "\n"
+        if current:
+            chunks.append(current)
+        return chunks
+
+
+class Summarizer:
+    """Class for summarizing text using OpenAI API."""
+
+    def __init__(self, api_key: str, model_name: str = "gpt-4o"):
+        """
+        Initialize the summarizer.
+
+        Args:
+            api_key (str): OpenAI API key.
+            model_name (str): The name of the model to use for summarization.
+        """
+        self.api_key = api_key
+        self.model_name = model_name
+
+    def summarize_chunk(self, chunk: str) -> str:
+        """
+        Summarize a single chunk of text.
+
+        Args:
+            chunk (str): Text chunk to summarize.
+
+        Returns:
+            str: Summarized text.
+        """
+        prompt = (
+            "Summarize the following text in a concise paragraph, focusing on the main ideas and themes.\n\n"
+            f"Text:\n\"\"\"\n{chunk}\n\"\"\"\n"
+        )
+        openai.api_key = self.api_key
+        response = openai.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2
+        )
+        return response.choices[0].message.content.strip()
+
+    def recursive_summarize(self, chunks: List[str], target_words: int = 120) -> str:
+        """
+        Recursively summarize text chunks until target word count is reached.
+
+        Args:
+            chunks (List[str]): List of text chunks to summarize.
+            target_words (int): Target word count for the final summary.
+
+        Returns:
+            str: Final summary.
+        """
+        summaries = [self.summarize_chunk(chunk) for chunk in chunks]
+        summary_text = "\n".join(summaries)
+        # If too long, recurse
+        if len(summary_text.split()) > target_words:
+            # Chunk again, but on summaries this time
+            chunk_size = max(1, len(summaries) // 3)
+            next_chunks = [
+                "\n".join(summaries[i:i+chunk_size])
+                for i in range(0, len(summaries), chunk_size)
+            ]
+            return self.recursive_summarize(next_chunks, target_words)
+        return summary_text
+
+
+class MetadataExtractor:
+    """Class for extracting metadata using OpenAI API."""
+
+    def __init__(self, api_key: str, model_name: str = "gpt-4o"):
+        """
+        Initialize the metadata extractor.
+
+        Args:
+            api_key (str): OpenAI API key.
+            model_name (str): The name of the model to use for metadata extraction.
+        """
+        self.api_key = api_key
+        self.model_name = model_name
+
+    def extract_metadata(self, text: str) -> Dict[str, Any]:
+        """
+        Extract metadata from text using OpenAI API.
+
+        Args:
+            text (str): Text to extract metadata from.
+
+        Returns:
+            Dict[str, Any]: Extracted metadata.
+        """
+        prompt = (
+            "Given the text below, extract the following metadata as JSON:\n"
+            "- title\n- authors (list)\n- publisher\n- year\n- ISBN\n- DOI\n\n"
+            "If not found, return null for the field. Example:\n"
+            '{"title": "...", "authors": ["..."], "publisher": "...", "year": "...", "isbn": "...", "doi": "..."}\n\n'
+            f"Text:\n\"\"\"\n{text}\n\"\"\"\n"
+        )
+        openai.api_key = self.api_key
+        response = openai.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1
+        )
+        try:
+            return json.loads(response.choices[0].message.content)
+        except Exception:
+            # fallback: try to parse JSON from text if it's surrounded by extra stuff
+            m = re.search(r"\{.*\}", response.choices[0].message.content, re.DOTALL)
+            return json.loads(m.group(0)) if m else {}
+
+
+class BookProcessor:
+    """Class for processing books and extracting metadata."""
+
+    def __init__(self, api_key: str):
+        """
+        Initialize the book processor.
+
+        Args:
+            api_key (str): OpenAI API key.
+        """
+        self.api_key = api_key
+        self.regex_extractor = RegexExtractor()
+        self.text_chunker = TextChunker()
+        self.summarizer = Summarizer(api_key)
+        self.metadata_extractor = MetadataExtractor(api_key)
+
+    def process_book(self, pages: Dict[int, str]) -> BookMetadata:
+        """
+        Process a book and extract metadata.
+
+        Args:
+            pages (Dict[int, str]): Dictionary of page numbers to page content.
+
+        Returns:
+            BookMetadata: Extracted book metadata.
+        """
+        # Use first 3 pages for metadata (usually enough)
+        first_pages = "\n".join([pages[k] for k in sorted(pages)[:3]])
+        # LLM-based metadata
+        llm_metadata = self.metadata_extractor.extract_metadata(first_pages)
+        # Regex fallback
+        text_full = "\n".join([pages[k] for k in sorted(pages)])
+        isbn = self.regex_extractor.extract_isbn(text_full) or llm_metadata.get("isbn")
+        doi = self.regex_extractor.extract_doi(text_full) or llm_metadata.get("doi")
+        # Recursive summary
+        chunks = self.text_chunker.chunk_text(pages)
+        summary = self.summarizer.recursive_summarize(chunks)
+        return BookMetadata(
+            title=llm_metadata.get("title"),
+            authors=llm_metadata.get("authors", []),
+            publisher=llm_metadata.get("publisher"),
+            year=llm_metadata.get("year"),
+            isbn=isbn,
+            doi=doi,
+            summary=summary
+        )
+
+class AIExtractor:
+    """AI-based metadata extractor using OpenAI API."""
+
+    def __init__(self, api_key=None):
+        """
+        Initialize the AI extractor with OpenAI API.
+
+        Args:
+            api_key (str, optional): OpenAI API key. If not provided, it will be read from the OPENAI_API_KEY environment variable.
+        """
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not self.api_key:
+            logger.warning("No OpenAI API key provided. Please set the OPENAI_API_KEY environment variable or provide it as an argument.")
+        self.book_processor = BookProcessor(self.api_key)
+
+    def extract_metadata_from_directory(self, client, directory, progress_bar=None):
+        """
+        Extract book metadata from a directory using OpenAI API.
+
+        Args:
+            client: WebDAV client or local file system client
+            directory (str): Directory path
+            progress_bar (tqdm, optional): Progress bar to update. Defaults to None.
+
+        Returns:
+            dict: Extracted metadata
+        """
+        if progress_bar:
+            progress_bar.set_description(f"Processing {os.path.basename(directory)}")
+
+        # Initialize metadata with default values
+        metadata = {
+            'title': '',
+            'authors': [],
+            'publisher': '',
+            'year': '',
+            'isbn': '',
+            'doi': '',
+            'summary': '',
+            'cover_image': ''
+        }
+
+        try:
+            # Use the directory name as a fallback title
+            metadata['title'] = os.path.basename(directory)
+
+            # Check for cover image in Cover directory with _p.jpg postfix
+            cover_dir = os.path.join(directory, 'Cover')
+            if client.check(cover_dir):
+                cover_files = client.list(cover_dir)
+                cover_files = [f for f in cover_files if f.endswith('_p.jpg')]
+                if cover_files:
+                    metadata['cover_image'] = os.path.join(cover_dir, cover_files[0])
+                    logger.info(f"Found cover image: {metadata['cover_image']}")
+
+            # Check for text files in Kramerius/OPACID_*/*.txt
+            # Dictionary to store page content with page number as key
+            page_content = {}
+
+            # Get the base directory name (e.g., CVI_OPACID_SJF_802271061_X)
+            base_dir_name = os.path.basename(directory)
+
+            # Extract the OPACID part from the directory name
+            if "OPACID" in base_dir_name:
+                opacid_part = base_dir_name.split("CVI_")[1] if base_dir_name.startswith("CVI_") else base_dir_name
+
+                # Construct the path to the text files directory
+                kramierius_dir = os.path.join(directory, 'Kramerius')
+                text_files_dir = os.path.join(kramierius_dir, opacid_part)
+
+                if client.check(text_files_dir):
+                    # List text files in the directory
+                    text_files = client.list(text_files_dir)
+                    text_files = [f for f in text_files if f.endswith('.txt')]
+
+                    if text_files:
+                        # Sort text files by page number
+                        text_files.sort()
+
+                        # Load all pages into the dictionary
+                        for file in text_files:
+                            try:
+                                # Extract page number from filename (assuming format like *_p0001.txt)
+                                page_num = int(file.split('_p')[-1].split('.')[0])
+
+                                file_path = os.path.join(text_files_dir, file)
+                                content = client.read(file_path)
+
+                                if isinstance(content, bytes):
+                                    content = content.decode('utf-8', errors='ignore')
+
+                                # Store in dictionary with page number as key
+                                page_content[page_num] = content
+                            except (ValueError, IndexError) as e:
+                                logger.warning(f"Could not parse page number from file {file}: {e}")
+                else:
+                    logger.warning(f"Text files directory not found: {text_files_dir}")
+            else:
+                logger.warning(f"Could not extract OPACID part from directory name: {base_dir_name}")
+
+            # If pages were found, extract metadata using the BookProcessor
+            if page_content:
+                try:
+                    # Process the book using the BookProcessor
+                    book_metadata = self.book_processor.process_book(page_content)
+
+                    # Update metadata with extracted values
+                    metadata.update(book_metadata)
+
+                    logger.info("Successfully extracted metadata from text files")
+                except Exception as e:
+                    logger.error(f"Failed to process book: {e}")
+            else:
+                logger.warning(f"No text content found in directory: {directory}")
+
+            logger.info(f"Metadata extracted for directory: {directory}")
+            if progress_bar:
+                progress_bar.update(1)
+            return metadata
+        except Exception as e:
+            logger.error(f"Failed to extract metadata from directory {directory}: {e}")
+            if progress_bar:
+                progress_bar.update(1)
+            return metadata
