@@ -26,20 +26,32 @@ def create_excel_file(directories_metadata, output_path):
     logger.info(f"Creating Excel file: {output_path}")
 
     try:
-        # Create a copy of the metadata without the full_text field
-        clean_metadata = []
-        for metadata in directories_metadata:
-            clean_metadata_item = metadata.copy()
-            # Remove full_text field if it exists to avoid large Excel files
-            if 'full_text' in clean_metadata_item:
-                del clean_metadata_item['full_text']
-            clean_metadata.append(clean_metadata_item)
+        # Create a progress bar for Excel file creation
+        with tqdm(total=3, desc="Creating Excel file") as pbar:
+            # Create a copy of the metadata without the full_text field
+            clean_metadata = []
 
-        # Create a DataFrame from the clean metadata
-        df = pd.DataFrame(clean_metadata)
+            # Use a nested progress bar for cleaning metadata
+            with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
+                for metadata in directories_metadata:
+                    clean_metadata_item = metadata.copy()
+                    # Remove full_text field if it exists to avoid large Excel files
+                    if 'full_text' in clean_metadata_item:
+                        del clean_metadata_item['full_text']
+                    clean_metadata.append(clean_metadata_item)
+                    clean_pbar.update(1)
 
-        # Write to Excel
-        df.to_excel(output_path, index=False)
+            pbar.update(1)
+            pbar.set_description("Creating DataFrame")
+
+            # Create a DataFrame from the clean metadata
+            df = pd.DataFrame(clean_metadata)
+            pbar.update(1)
+
+            pbar.set_description("Writing to Excel")
+            # Write to Excel
+            df.to_excel(output_path, index=False)
+            pbar.update(1)
 
         logger.info(f"Excel file created successfully: {output_path}")
         return True

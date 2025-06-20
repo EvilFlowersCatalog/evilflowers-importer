@@ -56,7 +56,7 @@ class WebDAVClient:
     def list_directories(self):
         """
         List all directories on the WebDAV server.
-        
+
         Returns:
             list: List of directory paths
         """
@@ -79,10 +79,10 @@ class WebDAVClient:
     def check(self, path):
         """
         Check if a path exists on the WebDAV server.
-        
+
         Args:
             path (str): Path to check
-            
+
         Returns:
             bool: True if the path exists, False otherwise
         """
@@ -91,10 +91,10 @@ class WebDAVClient:
     def list(self, path):
         """
         List files and directories at the specified path.
-        
+
         Args:
             path (str): Path to list
-            
+
         Returns:
             list: List of file and directory names
         """
@@ -103,10 +103,10 @@ class WebDAVClient:
     def read(self, path):
         """
         Read the content of a file.
-        
+
         Args:
             path (str): Path to the file
-            
+
         Returns:
             str or bytes: Content of the file
         """
@@ -115,41 +115,53 @@ class WebDAVClient:
     def download_directory(self, remote_path, local_path, progress_bar=None):
         """
         Download a directory from the WebDAV server.
-        
+
         Args:
             remote_path (str): Path to the directory on the WebDAV server
             local_path (str): Local path to download to
             progress_bar (tqdm, optional): Progress bar to update. Defaults to None.
-            
+
         Returns:
             bool: True if successful, False otherwise
         """
         try:
             if progress_bar:
                 progress_bar.set_description(f"Downloading {os.path.basename(remote_path)}")
-            
+
             # Create local directory if it doesn't exist
             os.makedirs(local_path, exist_ok=True)
-            
+
             # List files and directories
             items = self.client.list(remote_path)
-            
-            for item in items:
-                remote_item_path = os.path.join(remote_path, item)
-                local_item_path = os.path.join(local_path, item)
-                
-                if item.endswith('/'):  # It's a directory
-                    # Create local directory
-                    os.makedirs(local_item_path, exist_ok=True)
-                    # Download directory contents
-                    self.download_directory(remote_item_path, local_item_path, progress_bar)
-                else:  # It's a file
-                    # Download file
-                    self.client.download_file(remote_item_path, local_item_path)
-            
+
+            # Count files and directories for progress tracking
+            files = [item for item in items if not item.endswith('/')]
+            directories = [item for item in items if item.endswith('/')]
+
+            # Create a nested progress bar for files in this directory
+            if files:
+                with tqdm(total=len(files), desc=f"Files in {os.path.basename(remote_path)}", leave=False) as file_pbar:
+                    for item in files:
+                        remote_item_path = os.path.join(remote_path, item)
+                        local_item_path = os.path.join(local_path, item)
+                        # Download file
+                        self.client.download_file(remote_item_path, local_item_path)
+                        file_pbar.update(1)
+
+            # Process subdirectories with a nested progress bar
+            if directories:
+                with tqdm(total=len(directories), desc=f"Subdirectories in {os.path.basename(remote_path)}", leave=False) as dir_pbar:
+                    for item in directories:
+                        remote_item_path = os.path.join(remote_path, item)
+                        local_item_path = os.path.join(local_path, item)
+                        # Create local directory
+                        os.makedirs(local_item_path, exist_ok=True)
+                        # Download directory contents
+                        self.download_directory(remote_item_path, local_item_path, dir_pbar)
+
             if progress_bar:
                 progress_bar.update(1)
-            
+
             return True
         except Exception as e:
             logger.error(f"Failed to download directory {remote_path}: {e}")

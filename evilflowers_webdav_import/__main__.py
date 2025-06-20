@@ -94,7 +94,8 @@ def main():
         with tqdm(total=len(directories), desc="Processing directories") as pbar:
             for directory in directories:
                 # Create a nested progress bar for downloading/processing
-                with tqdm(total=1, desc=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
+                # The total is set to 3 to represent: 1) checking files, 2) processing content, 3) finalizing metadata
+                with tqdm(total=3, desc=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
                     # Extract metadata
                     metadata = ai_extractor.extract_metadata_from_directory(client, directory, nested_pbar)
 
@@ -103,11 +104,17 @@ def main():
 
                     directories_metadata.append(metadata)
 
+                    # Ensure the nested progress bar is completed
+                    if nested_pbar.n < nested_pbar.total:
+                        nested_pbar.update(nested_pbar.total - nested_pbar.n)
+
                 # Update the top-level progress bar
                 pbar.update(1)
 
-        # Create Excel file
-        create_excel_file(directories_metadata, args.output)
+        # Create Excel file with a progress bar
+        with tqdm(total=1, desc="Creating Excel file", leave=True) as excel_pbar:
+            create_excel_file(directories_metadata, args.output)
+            excel_pbar.update(1)
 
         logger.info("Process completed successfully")
     except Exception as e:
