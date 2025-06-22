@@ -512,7 +512,7 @@ class AIExtractor:
         Extract book metadata from a directory using OpenAI API.
 
         Args:
-            client: WebDAV client or local file system client
+            client: Local file system client
             directory (str): Directory path
             progress_bar (tqdm, optional): Progress bar to update. Defaults to None.
 
@@ -544,7 +544,8 @@ class AIExtractor:
             metadata['title'] = os.path.basename(directory)
 
             # Check for cover image in Cover directory with _p.jpg postfix
-            cover_dir = os.path.join(directory, 'Cover')
+            # Build path to Cover directory
+            cover_dir = os.path.join(directory, "Cover")
             if client.check(cover_dir):
                 cover_files = client.list(cover_dir)
                 cover_files = [f for f in cover_files if f.endswith('_p.jpg')]
@@ -564,7 +565,7 @@ class AIExtractor:
                 opacid_part = base_dir_name.split("CVI_")[1] if base_dir_name.startswith("CVI_") else base_dir_name
 
                 # Construct the path to the text files directory
-                kramierius_dir = os.path.join(directory, 'Kramerius')
+                kramierius_dir = os.path.join(directory, "Kramerius")
                 text_files_dir = os.path.join(kramierius_dir, opacid_part)
 
                 if client.check(text_files_dir):
@@ -588,6 +589,7 @@ class AIExtractor:
                                     # Extract page number from filename (assuming format like *_p0001.txt)
                                     page_num = int(file.split('_p')[-1].split('.')[0])
 
+                                    # Build path to the text file
                                     file_path = os.path.join(text_files_dir, file)
                                     content = client.read(file_path)
 

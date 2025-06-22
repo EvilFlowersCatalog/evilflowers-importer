@@ -12,7 +12,7 @@ import logging
 from tqdm import tqdm
 
 from evilflowers_webdav_import.ai import AIExtractor
-from evilflowers_webdav_import.utils import create_parquet_file, LocalFileSystem
+from evilflowers_webdav_import.utils import create_output_files, LocalFileSystem
 
 # Set up logging
 logging.basicConfig(
@@ -35,9 +35,9 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        '--output',
+        '--output-dir',
         required=True,
-        help='Path to the output Parquet file'
+        help='Path to the output directory where index.parquet and index.csv will be created'
     )
 
     parser.add_argument(
@@ -147,8 +147,9 @@ def main():
                 # Update the top-level progress bar
                 pbar.update(1)
 
-        # Create Parquet file
-        create_parquet_file(directories_metadata, args.output)
+        # Create output files
+        parquet_path, csv_path = create_output_files(directories_metadata, args.output_dir)
+        logger.info(f"Created output files: {parquet_path}, {csv_path}")
 
         logger.info("Process completed successfully")
     except Exception as e:

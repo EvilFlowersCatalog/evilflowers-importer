@@ -35,4 +35,5 @@ ENV/
 *.xlsx
 *.xls
 *.csv
+*.parquet
 data/
