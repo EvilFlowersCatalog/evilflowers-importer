@@ -1,5 +1,5 @@
 """
-Utilities module for EvilFlowers WebDAV Book Import.
+Utilities module for EvilFlowers Book Import.
 
 This module provides common utility functions for the application.
 """
@@ -209,8 +209,8 @@ def create_excel_file(directories_metadata, output_path):
 
 class LocalFileSystem:
     """
-    A class to interact with the local file system in a way that's compatible with the WebDAV client.
-    This allows us to use the same code for both WebDAV and local files.
+    A class to interact with the local file system.
+    This allows us to work with local files in a consistent way.
     """
 
     def __init__(self, base_dir=None):

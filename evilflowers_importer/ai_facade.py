@@ -1,5 +1,5 @@
 """
-AI Facade module for EvilFlowers WebDAV Book Import.
+AI Facade module for EvilFlowers Book Import.
 
 This module provides a facade for AI functionality, abstracting away the specific AI model implementation.
 """
@@ -13,7 +13,7 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
-from evilflowers_webdav_import.ai_models import AIModelInterface, AIModelFactory
+from evilflowers_importer.ai_models import AIModelInterface, AIModelFactory
 
 # Set up logging
 logger = logging.getLogger(__name__)

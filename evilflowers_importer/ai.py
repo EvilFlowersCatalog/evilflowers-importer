@@ -1,5 +1,5 @@
 """
-AI module for EvilFlowers WebDAV Book Import.
+AI module for EvilFlowers Book Import.
 
 This module provides functionality for using AI models to extract metadata from text files.
 This is a compatibility layer that uses the new AI facade.
@@ -10,7 +10,7 @@ import logging
 from typing import Dict, Any
 from tqdm import tqdm
 
-from evilflowers_webdav_import.ai_facade import AIFacade, BookMetadata
+from evilflowers_importer.ai_facade import AIFacade, BookMetadata
 
 # Set up logging
 logger = logging.getLogger(__name__)

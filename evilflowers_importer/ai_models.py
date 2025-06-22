@@ -1,5 +1,5 @@
 """
-AI Models module for EvilFlowers WebDAV Book Import.
+AI Models module for EvilFlowers Book Import.
 
 This module provides an abstraction layer for different AI models that can be used for metadata extraction.
 """

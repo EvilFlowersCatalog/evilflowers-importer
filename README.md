@@ -21,10 +21,7 @@ A CLI application for extracting book metadata from local directories and creati
 
 ```bash
 # Main usage
-python -m evilflowers_webdav_import --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
-
-# Alternative using process_local module directly
-python -m evilflowers_webdav_import.process_local --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
 ```
 
 ### Arguments
@@ -35,6 +32,7 @@ python -m evilflowers_webdav_import.process_local --input-dir INPUT_DIRECTORY --
 - `--model-type`: (Optional) The type of AI model to use ("openai" or "ollama"). Defaults to "openai"
 - `--model-name`: (Optional) The name of the model to use. Defaults to "gpt-4o" for OpenAI and "mistral" for Ollama
 - `--verbose`: (Optional) Enable verbose output with detailed logging
+- `--workers`: (Optional) Number of worker threads for parallel processing. If not provided, uses the default based on CPU count.
 - `--limit`: (Optional) Limit the number of directories to process. Useful for debugging
 - `--help`: Show help message
 
@@ -52,23 +50,12 @@ OUTPUT_DIR="book_metadata"
 export OPENAI_API_KEY="your_openai_api_key"
 
 # Run the application
-python -m evilflowers_webdav_import \
+python -m evilflowers_importer \
   --input-dir "$INPUT_DIR" \
   --output-dir "$OUTPUT_DIR" \
   --verbose
 
 echo "Book metadata has been exported to $OUTPUT_DIR/index.parquet and $OUTPUT_DIR/index.csv"
-
-# Alternative using process_local module directly
-ALTERNATIVE_INPUT_DIR="/path/to/other/books"
-ALTERNATIVE_OUTPUT_DIR="other_book_metadata"
-
-python -m evilflowers_webdav_import.process_local \
-  --input-dir "$ALTERNATIVE_INPUT_DIR" \
-  --output-dir "$ALTERNATIVE_OUTPUT_DIR" \
-  --verbose
-
-echo "Book metadata has been exported to $ALTERNATIVE_OUTPUT_DIR/index.parquet and $ALTERNATIVE_OUTPUT_DIR/index.csv"
 ```
 
 ## Output
@@ -153,14 +140,14 @@ Ollama is a local model runner that allows you to run AI models on your own mach
 
 ```bash
 # Run with Ollama's Mistral model
-python -m evilflowers_webdav_import \
+python -m evilflowers_importer \
   --input-dir INPUT_DIRECTORY \
   --output-dir OUTPUT_DIRECTORY \
   --model-type ollama \
   --model-name mistral
 
 # You can also use other Ollama models
-python -m evilflowers_webdav_import \
+python -m evilflowers_importer \
   --input-dir INPUT_DIRECTORY \
   --output-dir OUTPUT_DIRECTORY \
   --model-type ollama \
@@ -173,18 +160,18 @@ The application includes a test script to try out different AI models:
 
 ```bash
 # Test OpenAI model
-python -m evilflowers_webdav_import.test_ai_models \
+python -m evilflowers_importer.test_ai_models \
   --model-type openai \
   --prompt "Summarize this book about artificial intelligence"
 
 # Test Ollama model
-python -m evilflowers_webdav_import.test_ai_models \
+python -m evilflowers_importer.test_ai_models \
   --model-type ollama \
   --model-name mistral \
   --prompt "Summarize this book about artificial intelligence"
 
 # Test with a specific directory
-python -m evilflowers_webdav_import.test_ai_models \
+python -m evilflowers_importer.test_ai_models \
   --model-type ollama \
   --directory "/path/to/book/directory"
 ```
