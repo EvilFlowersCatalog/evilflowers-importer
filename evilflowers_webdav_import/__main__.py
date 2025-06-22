@@ -47,6 +47,19 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        '--model-type',
+        choices=['openai', 'ollama'],
+        default='openai',
+        help='The type of AI model to use'
+    )
+
+    parser.add_argument(
+        '--model-name',
+        default=None,
+        help='The name of the model to use. Defaults to "gpt-4o" for OpenAI and "mistral" for Ollama'
+    )
+
+    parser.add_argument(
         '--verbose',
         action='store_true',
         help='Enable verbose output'
@@ -91,8 +104,17 @@ def main():
             logger.info(f"Limiting to {args.limit} directories")
             directories = directories[:args.limit]
 
-        # Initialize AI extractor with OpenAI API
-        ai_extractor = AIExtractor(args.api_key)
+        # Set default model name based on model type if not provided
+        model_name = args.model_name
+        if model_name is None:
+            model_name = "gpt-4o" if args.model_type == "openai" else "mistral"
+
+        # Initialize AI extractor with the specified model type
+        ai_extractor = AIExtractor(
+            api_key=args.api_key,
+            model_type=args.model_type,
+            model_name=model_name
+        )
 
         # Extract metadata from each directory with progress bar
         directories_metadata = []
