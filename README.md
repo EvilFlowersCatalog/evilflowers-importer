@@ -22,13 +22,13 @@ A CLI application for extracting book metadata from local directories and creati
 
 ```bash
 # Main usage
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
 ```
 
 ### Arguments
 
 - `--input-dir`: Path to the directory containing book directories
-- `--output-dir`: Path to the output directory where index.parquet and index.csv will be created
+- `--output`: Path to the output directory where progress.json, index.parquet and index.csv will be created
 - `--api-key`: (Optional) OpenAI API key. If not provided, it will be read from the OPENAI_API_KEY environment variable
 - `--model-type`: (Optional) The type of AI model to use ("openai" or "ollama"). Defaults to "openai"
 - `--model-name`: (Optional) The name of the model to use. Defaults to "gpt-4o" for OpenAI and "mistral" for Ollama
@@ -54,7 +54,7 @@ export OPENAI_API_KEY="your_openai_api_key"
 # Run the application
 python -m evilflowers_importer \
   --input-dir "$INPUT_DIR" \
-  --output-dir "$OUTPUT_DIR" \
+  --output "$OUTPUT_DIR" \
   --verbose
 
 echo "Book metadata has been exported to $OUTPUT_DIR/index.parquet and $OUTPUT_DIR/index.csv"
@@ -126,7 +126,7 @@ If you encounter issues, try the following:
 
 5. The application uses a recursive summarization technique to create concise summaries of books, regardless of their length.
 
-6. The application tracks progress and saves it to a `progress.parquet` file in the output directory. If the script is interrupted, you can run it again with the same input and output directories to continue from where you left off. Use the `--ignore-progress` flag if you want to start from scratch.
+6. The application tracks progress and saves it to a `progress.json` file in the output directory. If the script is interrupted, you can run it again with the same input and output directories to continue from where you left off. Use the `--ignore-progress` flag if you want to start from scratch.
 
 ## Progress Tracking
 
@@ -134,9 +134,9 @@ The application now includes a progress tracking feature that allows you to resu
 
 ### How Progress Tracking Works
 
-1. As each book directory is processed, the application saves the extracted metadata to a `progress.parquet` file in the output directory.
+1. As each book directory is processed, the application saves the extracted metadata to a `progress.json` file in the output directory.
 2. If the script is interrupted (e.g., by a power outage, system crash, or manual termination), you can run it again with the same input and output directories.
-3. The application will automatically detect the `progress.parquet` file, load the previously processed directories, and continue with the remaining ones.
+3. The application will automatically detect the `progress.json` file, load the previously processed directories, and continue with the remaining ones.
 4. The final output files (`index.parquet` and `index.csv`) are still created at the end of the process, containing metadata for all books.
 
 ### Command-Line Options
@@ -147,13 +147,13 @@ The application now includes a progress tracking feature that allows you to resu
 
 ```bash
 # Initial run
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
 
 # If interrupted, continue from where you left off
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
 
 # Start from scratch, ignoring previous progress
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY --ignore-progress
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY --ignore-progress
 ```
 
 ## Using Local Models with Ollama
@@ -174,14 +174,14 @@ Ollama is a local model runner that allows you to run AI models on your own mach
 # Run with Ollama's Mistral model
 python -m evilflowers_importer \
   --input-dir INPUT_DIRECTORY \
-  --output-dir OUTPUT_DIRECTORY \
+  --output OUTPUT_DIRECTORY \
   --model-type ollama \
   --model-name mistral
 
 # You can also use other Ollama models
 python -m evilflowers_importer \
   --input-dir INPUT_DIRECTORY \
-  --output-dir OUTPUT_DIRECTORY \
+  --output OUTPUT_DIRECTORY \
   --model-type ollama \
   --model-name llama2
 ```

@@ -13,7 +13,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from evilflowers_importer.ai import AIExtractor
-from evilflowers_importer.utils import create_output_files, LocalFileSystem
+from evilflowers_importer.utils import LocalFileSystem
 
 # Set up logging
 logging.basicConfig(
@@ -36,9 +36,9 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        '--output-dir',
+        '--output',
         required=True,
-        help='Path to the output directory where index.parquet and index.csv will be created'
+        help='Path to the output progress.json file'
     )
 
     parser.add_argument(
@@ -137,11 +137,6 @@ def main():
         # List directories
         directories = list_directories(args.input_dir)
 
-        # Limit the number of directories if specified
-        if args.limit is not None:
-            logger.info(f"Limiting to {args.limit} directories")
-            directories = directories[:args.limit]
-
         # Set default model name based on model type if not provided
         model_name = args.model_name
         if model_name is None:
@@ -155,11 +150,13 @@ def main():
             model_name=model_name
         )
 
-        # Define progress file path
-        progress_file = os.path.join(args.output_dir, "progress.parquet")
+        # Use the output argument directly as the progress file path
+        progress_file = args.output
 
-        # Create output directory if it doesn't exist
-        os.makedirs(args.output_dir, exist_ok=True)
+        # Create parent directory of the output file if it doesn't exist and isn't empty
+        parent_dir = os.path.dirname(progress_file)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
 
         # Load existing progress if available and not ignoring progress
         directories_metadata = []
@@ -168,10 +165,16 @@ def main():
         if os.path.exists(progress_file) and not args.ignore_progress:
             try:
                 logger.info(f"Loading existing progress from {progress_file}")
-                progress_df = pd.read_parquet(progress_file)
+                progress_df = pd.read_json(progress_file, orient="records")
                 directories_metadata = progress_df.to_dict('records')
-                processed_dirs = set(progress_df['dirname'].tolist())
-                logger.info(f"Loaded progress for {len(processed_dirs)} directories")
+
+                # Check if 'dirname' column exists in the progress DataFrame
+                if 'dirname' in progress_df.columns:
+                    processed_dirs = set(progress_df['dirname'].tolist())
+                    logger.info(f"Loaded progress for {len(processed_dirs)} directories")
+                else:
+                    logger.warning("Progress file does not contain 'dirname' column. Starting with empty progress.")
+                    processed_dirs = set()
             except Exception as e:
                 logger.error(f"Failed to load progress file: {e}")
                 logger.info("Starting with empty progress")
@@ -179,7 +182,23 @@ def main():
             logger.info("Ignoring existing progress as requested")
 
         # Filter out already processed directories
-        directories_to_process = [d for d in directories if d not in processed_dirs]
+        # Ensure we're comparing the same format of directory paths
+        directories_to_process = []
+        for d in directories:
+            # Check if this directory has already been processed
+            if d not in processed_dirs:
+                directories_to_process.append(d)
+
+        # Log information about directories being processed
+        logger.debug(f"Total directories: {len(directories)}")
+        logger.debug(f"Already processed: {len(processed_dirs)}")
+        logger.debug(f"To be processed: {len(directories_to_process)}")
+
+        # Limit the number of directories to process if specified
+        if args.limit is not None:
+            logger.info(f"Limiting to {args.limit} remaining directories")
+            directories_to_process = directories_to_process[:args.limit]
+            logger.debug(f"After limit: {len(directories_to_process)} to be processed")
 
         # Log information about the parallelism
         workers_info = f" with {args.workers} workers" if args.workers else " with auto workers"
@@ -216,15 +235,9 @@ def main():
                         cols = ['dirname'] + [col for col in progress_df.columns if col != 'dirname']
                         progress_df = progress_df[cols]
 
-                    # Save to parquet file
-                    progress_df.to_parquet(progress_file, index=False)
+                    # Save to JSON file
+                    progress_df.to_json(progress_file, orient="records", indent=4)
                     save_pbar.update(1)
-
-        # Create final output files with a progress bar
-        with tqdm(total=1, desc="Creating output files", leave=True) as output_pbar:
-            parquet_path, csv_path = create_output_files(directories_metadata, args.output_dir)
-            output_pbar.update(1)
-            logger.info(f"Created output files: {parquet_path}, {csv_path}")
 
         logger.info("Process completed successfully")
     except Exception as e:
