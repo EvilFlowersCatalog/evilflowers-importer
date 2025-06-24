@@ -7,7 +7,7 @@ This module provides common utility functions for the application.
 import os
 import logging
 import pandas as pd
-from tqdm import tqdm
+from evilflowers_importer.tui import RichProgressBar
 
 def clean_metadata_item(item):
     """
@@ -60,12 +60,12 @@ def create_output_files(directories_metadata, output_dir):
 
     try:
         # Create a progress bar for file creation
-        with tqdm(total=4, desc="Creating output files") as pbar:
+        with RichProgressBar(total=4, description="Creating output files") as pbar:
             # Create a copy of the metadata without the full_text field
             clean_metadata = []
 
             # Use a nested progress bar for cleaning metadata
-            with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
+            with RichProgressBar(total=len(directories_metadata), description="Cleaning metadata", leave=False) as clean_pbar:
                 for metadata in directories_metadata:
                     clean_metadata.append(clean_metadata_item(metadata))
                     clean_pbar.update(1)
@@ -123,12 +123,12 @@ def create_parquet_file(directories_metadata, output_path):
             return True
 
         # Create a progress bar for Parquet file creation
-        with tqdm(total=3, desc="Creating Parquet file") as pbar:
+        with RichProgressBar(total=3, description="Creating Parquet file") as pbar:
             # Create a copy of the metadata without the full_text field
             clean_metadata = []
 
             # Use a nested progress bar for cleaning metadata
-            with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
+            with RichProgressBar(total=len(directories_metadata), description="Cleaning metadata", leave=False) as clean_pbar:
                 for metadata in directories_metadata:
                     clean_metadata.append(clean_metadata_item(metadata))
                     clean_pbar.update(1)
@@ -172,12 +172,12 @@ def create_excel_file(directories_metadata, output_path):
 
     try:
         # Create a progress bar for Excel file creation
-        with tqdm(total=3, desc="Creating Excel file") as pbar:
+        with RichProgressBar(total=3, description="Creating Excel file") as pbar:
             # Create a copy of the metadata without the full_text field
             clean_metadata = []
 
             # Use a nested progress bar for cleaning metadata
-            with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
+            with RichProgressBar(total=len(directories_metadata), description="Cleaning metadata", leave=False) as clean_pbar:
                 for metadata in directories_metadata:
                     clean_metadata.append(clean_metadata_item(metadata))
                     clean_pbar.update(1)
