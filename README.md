@@ -44,6 +44,7 @@ The TUI provides real-time feedback on the processing of book directories, inclu
 - `--api-key`: (Optional) OpenAI API key. If not provided, it will be read from the OPENAI_API_KEY environment variable
 - `--model-type`: (Optional) The type of AI model to use ("openai" or "ollama"). Defaults to "openai"
 - `--model-name`: (Optional) The name of the model to use. Defaults to "gpt-4o" for OpenAI and "mistral" for Ollama
+- `--strategy`: (Optional) The import strategy to use ("kramerius" or "dummy"). Defaults to "kramerius"
 - `--verbose`: (Optional) Enable verbose output with detailed logging
 - `--workers`: (Optional) Number of worker threads for parallel processing. If not provided, uses the default based on CPU count.
 - `--limit`: (Optional) Limit the number of directories to process. Useful for debugging
@@ -177,6 +178,97 @@ python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULT
 # Start from scratch, ignoring previous progress
 python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json --ignore-progress
 ```
+
+## Import Strategies
+
+The application supports different strategies for content availability from various sources. These strategies are responsible for listing input directories and processing individual items, providing text streams and required static files to the rest of the application.
+
+### Available Strategies
+
+- **kramerius**: (Default) This strategy is implemented as `FileSystemKramerius` and is designed for the Kramerius directory structure:
+  - Directory name contains OPACID
+  - Cover images in Cover/ directory with _p.jpg postfix
+  - Text files in Kramerius/OPACID_*/*.txt
+  - PDF files in PDF/ directory
+
+- **dummy**: A simple boilerplate strategy that doesn't actually access any real content but serves as a template for implementing new strategies. It provides dummy text content and no static files.
+
+### Using Strategies
+
+You can specify which strategy to use with the `--strategy` command-line argument:
+
+```bash
+# Use the default Kramerius strategy
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json
+
+# Use the dummy strategy
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json --strategy dummy
+```
+
+### Implementing New Strategies
+
+To implement a new content strategy:
+
+1. Create a new class that inherits from `ContentStrategy` in the `evilflowers_importer/strategies.py` file
+2. Implement the following methods:
+   - `list_items`: Lists all items to process in the base directory
+   - `process_item`: Processes a single item and returns its metadata
+   - `get_text_content`: Returns a dictionary mapping page numbers to text content
+   - `get_cover_image_path`: Returns the path to the cover image, or None if not found
+   - `get_pdf_path`: Returns the path to the PDF file, or None if not found
+3. Add your strategy to the `StrategyFactory.create_strategy` method
+4. Update the choices for the `--strategy` argument in `__main__.py`
+
+The strategy interface is designed to be flexible enough to support different data sources like HTTP, PostgreSQL, WebDav, S3, etc. Each strategy is responsible for both finding items to process and processing them, which allows for more flexibility in supporting different data sources.
+
+#### Example: Implementing a WebDav Strategy
+
+Here's a simplified example of how you might implement a WebDav strategy:
+
+```python
+class WebDavStrategy(ContentStrategy):
+    """Strategy for accessing content from a WebDav server."""
+
+    def __init__(self):
+        self.client = None
+
+    def list_items(self, client, base_dir: str) -> List[str]:
+        """List all items to process on the WebDav server."""
+        # Use WebDav client to list directories
+        items = client.list(base_dir)
+        return [item for item in items if client.is_dir(item)]
+
+    def process_item(self, client, item: str, progress_bar=None) -> Dict[str, Any]:
+        """Process a single item from the WebDav server."""
+        # Get text content, cover image path, and PDF path
+        text_content = self.get_text_content(client, item, progress_bar)
+        cover_path = self.get_cover_image_path(client, item)
+        pdf_path = self.get_pdf_path(client, item)
+
+        # Return metadata
+        return {
+            'text_content': text_content,
+            'cover_path': cover_path,
+            'pdf_path': pdf_path
+        }
+
+    def get_text_content(self, client, item: str, progress_bar=None) -> Dict[int, str]:
+        """Get text content from the WebDav server."""
+        # Implementation specific to WebDav
+        # ...
+
+    def get_cover_image_path(self, client, item: str) -> Optional[str]:
+        """Get the path to the cover image on the WebDav server."""
+        # Implementation specific to WebDav
+        # ...
+
+    def get_pdf_path(self, client, item: str) -> Optional[str]:
+        """Get the path to the PDF file on the WebDav server."""
+        # Implementation specific to WebDav
+        # ...
+```
+
+The AI processing is independent of the content strategy, so you only need to focus on providing the content in the expected format.
 
 ## Using Local Models with Ollama
 

@@ -83,37 +83,17 @@ def parse_arguments():
         help='Ignore existing progress and process all directories from scratch.'
     )
 
+    parser.add_argument(
+        '--strategy',
+        choices=['kramerius', 'dummy'],
+        default='kramerius',
+        help='The import strategy to use. "kramerius" uses the current directory structure, "dummy" is a boilerplate strategy.'
+    )
+
     return parser.parse_args()
 
 
-def list_directories(base_dir):
-    """
-    List all directories in the base directory.
-
-    Args:
-        base_dir (str): Base directory path
-
-    Returns:
-        list: List of directory paths
-    """
-    logger.info(f"Listing directories in {base_dir}")
-
-    try:
-        # Get all items in the base directory
-        items = os.listdir(base_dir)
-
-        # Filter out files and keep only directories
-        directories = []
-        for item in items:
-            item_path = os.path.join(base_dir, item)
-            if os.path.isdir(item_path):
-                directories.append(item_path)
-
-        logger.info(f"Found {len(directories)} directories")
-        return directories
-    except Exception as e:
-        logger.error(f"Failed to list directories: {e}")
-        raise
+# list_directories function has been removed and replaced with strategy.list_items
 
 
 def main():
@@ -130,21 +110,22 @@ def main():
 
     logger.info(f"Using local directory: {args.input_dir}")
 
-    # List directories
-    directories = list_directories(args.input_dir)
-
     # Set default model name based on model type if not provided
     model_name = args.model_name
     if model_name is None:
         model_name = "gpt-4o" if args.model_type == "openai" else "mistral"
 
-    # Initialize AI extractor with the specified model type
+    # Initialize AI extractor with the specified model type and strategy
     ai_extractor = AIExtractor(
         api_key=args.api_key,
         max_workers=args.workers,
         model_type=args.model_type,
-        model_name=model_name
+        model_name=model_name,
+        strategy=args.strategy
     )
+
+    # List items to process using the strategy
+    directories = ai_extractor.list_items(client, args.input_dir)
 
     # Load existing progress if available and not ignoring progress
     directories_metadata = []
@@ -206,8 +187,8 @@ def main():
             # Create a nested progress bar for processing
             # The total is set to 3 to represent: 1) checking files, 2) processing content, 3) finalizing metadata
             with RichProgressBar(total=3, description=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
-                # Extract metadata
-                metadata = ai_extractor.extract_metadata_from_directory(client, directory, nested_pbar)
+                # Process item using the strategy
+                metadata = ai_extractor.process_item(client, directory, nested_pbar)
 
                 # Add directory path to metadata
                 metadata['dirname'] = directory

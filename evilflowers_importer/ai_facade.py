@@ -534,13 +534,16 @@ class AIFacade:
         # Create the book processor
         self.book_processor = BookProcessor(self.ai_model, max_workers=max_workers)
 
-    def extract_metadata_from_directory(self, client, directory, progress_bar=None):
+    def extract_metadata_from_directory(self, client, directory, page_content, cover_path=None, pdf_path=None, progress_bar=None):
         """
         Extract book metadata from a directory.
 
         Args:
             client: Local file system client
             directory (str): Directory path
+            page_content (Dict[int, str]): Dictionary mapping page numbers to text content
+            cover_path (str, optional): Path to the cover image. Defaults to None.
+            pdf_path (str, optional): Path to the PDF file. Defaults to None.
             progress_bar (RichProgressBar, optional): Progress bar to update. Defaults to None.
 
         Returns:
@@ -548,9 +551,6 @@ class AIFacade:
         """
         # Log information about the directory being processed
         logger.info(f"Extracting metadata from directory: {directory} with {self.actual_workers} worker threads")
-
-        if progress_bar:
-            progress_bar.set_description(f"Checking files in {os.path.basename(directory)} (workers: {self.actual_workers})")
 
         # Initialize metadata with default values
         metadata = {
@@ -563,82 +563,20 @@ class AIFacade:
             'llm_isbn': '',  # ISBN extracted using LLM
             'llm_doi': '',   # DOI extracted using LLM
             'summary': '',
-            'cover_image': ''
+            'cover_image': '',
+            'pdf_path': ''
         }
 
         try:
             # Use the directory name as a fallback title
             metadata['title'] = os.path.basename(directory)
 
-            # Check for cover image in Cover directory with _p.jpg postfix
-            # Build path to Cover directory
-            cover_dir = os.path.join(directory, "Cover")
-            if client.check(cover_dir):
-                cover_files = client.list(cover_dir)
-                cover_files = [f for f in cover_files if f.endswith('_p.jpg')]
-                if cover_files:
-                    metadata['cover_image'] = os.path.join(cover_dir, cover_files[0])
-                    logger.info(f"Found cover image: {metadata['cover_image']}")
+            # Create a progress bar for the overall processing
+            if progress_bar:
+                progress_bar.set_description(f"Processing {os.path.basename(directory)}")
+                progress_bar.update(1)  # Update progress for getting content (which is now done externally)
 
-            # Check for text files in Kramerius/OPACID_*/*.txt
-            # Dictionary to store page content with page number as key
-            page_content = {}
-
-            # Get the base directory name (e.g., CVI_OPACID_SJF_802271061_X)
-            base_dir_name = os.path.basename(directory)
-
-            # Extract the OPACID part from the directory name
-            if "OPACID" in base_dir_name:
-                opacid_part = base_dir_name.split("CVI_")[1] if base_dir_name.startswith("CVI_") else base_dir_name
-
-                # Construct the path to the text files directory
-                kramierius_dir = os.path.join(directory, "Kramerius")
-                text_files_dir = os.path.join(kramierius_dir, opacid_part)
-
-                if client.check(text_files_dir):
-                    # List text files in the directory
-                    text_files = client.list(text_files_dir)
-                    text_files = [f for f in text_files if f.endswith('.txt')]
-
-                    if text_files:
-                        # Sort text files by page number
-                        text_files.sort()
-
-                        # Update progress bar after checking files
-                        if progress_bar:
-                            progress_bar.update(1)
-                            progress_bar.set_description(f"Processing content from {os.path.basename(directory)} (workers: {self.actual_workers})")
-
-                        # Load all pages into the dictionary
-                        with RichProgressBar(total=len(text_files), description="Loading text files", leave=False) as file_pbar:
-                            for file in text_files:
-                                try:
-                                    # Extract page number from filename (assuming format like *_p0001.txt)
-                                    page_num = int(file.split('_p')[-1].split('.')[0])
-
-                                    # Build path to the text file
-                                    file_path = os.path.join(text_files_dir, file)
-                                    content = client.read(file_path)
-
-                                    if isinstance(content, bytes):
-                                        content = content.decode('utf-8', errors='ignore')
-
-                                    # Store in dictionary with page number as key
-                                    page_content[page_num] = content
-                                    file_pbar.update(1)
-                                except (ValueError, IndexError) as e:
-                                    logger.warning(f"Could not parse page number from file {file}: {e}")
-                                    file_pbar.update(1)
-                else:
-                    logger.warning(f"Text files directory not found: {text_files_dir}")
-                    if progress_bar:
-                        progress_bar.update(1)  # Skip to next step since no files found
-            else:
-                logger.warning(f"Could not extract OPACID part from directory name: {base_dir_name}")
-                if progress_bar:
-                    progress_bar.update(1)  # Skip to next step since no files found
-
-            # If pages were found, extract metadata using the BookProcessor
+            # Process the content if available
             if page_content:
                 try:
                     # Process the book using the BookProcessor
@@ -647,27 +585,33 @@ class AIFacade:
                     # Update metadata with extracted values
                     metadata.update(book_metadata)
 
-                    logger.info("Successfully extracted metadata from text files")
+                    logger.info("Successfully extracted metadata from text content")
                 except Exception as e:
                     logger.error(f"Failed to process book: {e}")
             else:
-                logger.warning(f"No text content found in directory: {directory}")
+                logger.warning(f"No text content provided for directory: {directory}")
+
+            # Set cover image path if provided
+            if cover_path:
+                metadata['cover_image'] = cover_path
+
+            # Set PDF path if provided
+            if pdf_path:
+                metadata['pdf_path'] = pdf_path
 
             logger.info(f"Metadata extracted for directory: {directory}")
 
             # Update progress bar for finalizing metadata
-            if progress_bar:
-                progress_bar.set_description(f"Finalizing metadata for {os.path.basename(directory)} (workers: {self.actual_workers})")
-                progress_bar.update(1)
+            if progress_bar and progress_bar.n < progress_bar.total:
+                progress_bar.set_description(f"Finalizing metadata for {os.path.basename(directory)}")
+                progress_bar.update(progress_bar.total - progress_bar.n)
 
             return metadata
         except Exception as e:
             logger.error(f"Failed to extract metadata from directory {directory}: {e}")
-            if progress_bar:
+            if progress_bar and progress_bar.n < progress_bar.total:
                 # Ensure progress bar is updated even on error
-                if progress_bar.n < progress_bar.total:
-                    remaining_steps = progress_bar.total - progress_bar.n
-                    progress_bar.set_description(f"Error processing {os.path.basename(directory)}")
-                    progress_bar.update(remaining_steps)
-                    logger.info(f"Updated progress bar by {remaining_steps} steps due to error")
+                remaining_steps = progress_bar.total - progress_bar.n
+                progress_bar.set_description(f"Error processing {os.path.basename(directory)}")
+                progress_bar.update(remaining_steps)
             return metadata
