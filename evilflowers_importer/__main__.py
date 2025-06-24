@@ -33,9 +33,9 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        '--output',
+        '--results-file',
         required=True,
-        help='Path to the output progress.json file'
+        help='Path to the JSON file where progress data will be stored'
     )
 
     parser.add_argument(
@@ -146,22 +146,14 @@ def main():
         model_name=model_name
     )
 
-    # Use the output argument directly as the progress file path
-    progress_file = args.output
-
-    # Create parent directory of the output file if it doesn't exist and isn't empty
-    parent_dir = os.path.dirname(progress_file)
-    if parent_dir:
-        os.makedirs(parent_dir, exist_ok=True)
-
     # Load existing progress if available and not ignoring progress
     directories_metadata = []
     processed_dirs = set()
 
-    if os.path.exists(progress_file) and not args.ignore_progress:
+    if os.path.exists(args.results_file) and not args.ignore_progress:
         try:
-            logger.info(f"Loading existing progress from {progress_file}")
-            progress_df = pd.read_json(progress_file, orient="records")
+            logger.info(f"Loading existing progress from {args.results_file}")
+            progress_df = pd.read_json(args.results_file, orient="records")
             directories_metadata = progress_df.to_dict('records')
 
             # Check if 'dirname' column exists in the progress DataFrame
@@ -174,7 +166,7 @@ def main():
         except Exception as e:
             logger.error(f"Failed to load progress file: {e}")
             logger.info("Starting with empty progress")
-    elif args.ignore_progress and os.path.exists(progress_file):
+    elif args.ignore_progress and os.path.exists(args.results_file):
         logger.info("Ignoring existing progress as requested")
 
     # Filter out already processed directories
@@ -243,7 +235,14 @@ def main():
                     progress_df = progress_df[cols]
 
                 # Save to JSON file
-                progress_df.to_json(progress_file, orient="records", indent=4)
+                try:
+                    progress_df.to_json(args.results_file, orient="records", indent=4)
+                except FileExistsError:
+                    # This is expected since we're using the file to track progress
+                    # Just overwrite the file
+                    if os.path.exists(args.results_file):
+                        os.remove(args.results_file)
+                    progress_df.to_json(args.results_file, orient="records", indent=4)
                 save_pbar.update(1)
 
     logger.info("Process completed successfully")

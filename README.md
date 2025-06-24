@@ -24,7 +24,7 @@ A TUI (Text User Interface) application for extracting book metadata from local 
 
 ```bash
 # Main usage
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json
 ```
 
 When you run the application, a TUI (Text User Interface) will be displayed with the following components:
@@ -40,7 +40,7 @@ The TUI provides real-time feedback on the processing of book directories, inclu
 ### Arguments
 
 - `--input-dir`: Path to the directory containing book directories
-- `--output`: Path to the output directory where progress.json, index.parquet and index.csv will be created
+- `--results-file`: Path to the JSON file where progress data will be stored
 - `--api-key`: (Optional) OpenAI API key. If not provided, it will be read from the OPENAI_API_KEY environment variable
 - `--model-type`: (Optional) The type of AI model to use ("openai" or "ollama"). Defaults to "openai"
 - `--model-name`: (Optional) The name of the model to use. Defaults to "gpt-4o" for OpenAI and "mistral" for Ollama
@@ -56,9 +56,9 @@ The TUI provides real-time feedback on the processing of book directories, inclu
 #!/bin/bash
 # Example usage of the EvilFlowers Book Import application
 
-# Set your input and output directories
+# Set your input directory and results file
 INPUT_DIR="/path/to/your/books"
-OUTPUT_DIR="book_metadata"
+RESULTS_FILE="book_metadata/progress.json"
 
 # Set OpenAI API key as an environment variable
 export OPENAI_API_KEY="your_openai_api_key"
@@ -66,15 +66,15 @@ export OPENAI_API_KEY="your_openai_api_key"
 # Run the application
 python -m evilflowers_importer \
   --input-dir "$INPUT_DIR" \
-  --output "$OUTPUT_DIR" \
+  --results-file "$RESULTS_FILE" \
   --verbose
 
-echo "Book metadata has been exported to $OUTPUT_DIR/index.parquet and $OUTPUT_DIR/index.csv"
+echo "Book progress data has been exported to $RESULTS_FILE"
 ```
 
 ## Output
 
-The application generates both Parquet and CSV files in the specified output directory with the following columns:
+The application generates a JSON file at the specified path with progress data. Each entry in the JSON file contains the following fields:
 - dirname: Path to the book directory
 - title: Book title
 - authors: List of book authors (pipe-separated in the output files)
@@ -148,7 +148,7 @@ If you encounter issues, try the following:
 
 5. The application uses a recursive summarization technique to create concise summaries of books, regardless of their length.
 
-6. The application tracks progress and saves it to a `progress.json` file in the output directory. If the script is interrupted, you can run it again with the same input and output directories to continue from where you left off. Use the `--ignore-progress` flag if you want to start from scratch.
+6. The application tracks progress and saves it to the specified JSON file. If the script is interrupted, you can run it again with the same input directory and results file to continue from where you left off. Use the `--ignore-progress` flag if you want to start from scratch.
 
 ## Progress Tracking
 
@@ -156,10 +156,10 @@ The application now includes a progress tracking feature that allows you to resu
 
 ### How Progress Tracking Works
 
-1. As each book directory is processed, the application saves the extracted metadata to a `progress.json` file in the output directory.
-2. If the script is interrupted (e.g., by a power outage, system crash, or manual termination), you can run it again with the same input and output directories.
-3. The application will automatically detect the `progress.json` file, load the previously processed directories, and continue with the remaining ones.
-4. The final output files (`index.parquet` and `index.csv`) are still created at the end of the process, containing metadata for all books.
+1. As each book directory is processed, the application saves the extracted metadata to the specified JSON file.
+2. If the script is interrupted (e.g., by a power outage, system crash, or manual termination), you can run it again with the same input directory and results file.
+3. The application will automatically detect the existing JSON file, load the previously processed directories, and continue with the remaining ones.
+4. Each iteration dumps the progress dataframe to the specified file, ensuring that progress is saved continuously.
 
 ### Command-Line Options
 
@@ -169,13 +169,13 @@ The application now includes a progress tracking feature that allows you to resu
 
 ```bash
 # Initial run
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json
 
 # If interrupted, continue from where you left off
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json
 
 # Start from scratch, ignoring previous progress
-python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY --ignore-progress
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --results-file RESULTS_FILE.json --ignore-progress
 ```
 
 ## Using Local Models with Ollama
@@ -196,14 +196,14 @@ Ollama is a local model runner that allows you to run AI models on your own mach
 # Run with Ollama's Mistral model
 python -m evilflowers_importer \
   --input-dir INPUT_DIRECTORY \
-  --output OUTPUT_DIRECTORY \
+  --results-file RESULTS_FILE.json \
   --model-type ollama \
   --model-name mistral
 
 # You can also use other Ollama models
 python -m evilflowers_importer \
   --input-dir INPUT_DIRECTORY \
-  --output OUTPUT_DIRECTORY \
+  --results-file RESULTS_FILE.json \
   --model-type ollama \
   --model-name llama2
 ```

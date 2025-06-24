@@ -276,8 +276,11 @@ class TUIApp:
         self.layout["progress"].update(self.progress_manager.get_panel())
         self.layout["logs"].update(self.log_panel.get_panel())
 
-        # Create the live display
+        # Create the live display with keyboard support
         self.live = Live(self.layout, refresh_per_second=4)
+
+        # Flag to indicate if the application should exit
+        self.should_exit = False
 
         # Initialize update thread
         self.update_thread = None
@@ -291,7 +294,7 @@ class TUIApp:
 
         # Initialize command-line arguments
         self.input_dir = None
-        self.output_file = None
+        self.results_file = None
         self.model_type = None
         self.model_name = None
         self.workers = None
@@ -299,9 +302,28 @@ class TUIApp:
         self.total_found_directories = 0
         self.skipped_directories = 0
 
+        # Initialize function result
+        self._func_result = None
+
+        # Add shutdown message to status panel
+        self.status_panel.update_stats("Shutdown", "Press 'q' or Ctrl+C to exit")
+
     def start(self):
         """Start the TUI application."""
-        self.live.start()
+        # Set up keyboard event handler
+        import signal
+
+        # Handle Ctrl+C gracefully
+        def signal_handler(sig, frame):
+            logger.info("Received interrupt signal, shutting down gracefully...")
+            self.should_exit = True
+            self.status_panel.update_status("Shutting down...")
+
+        # Register the signal handler
+        signal.signal(signal.SIGINT, signal_handler)
+
+        # Start the live display
+        self.live.start(refresh=True)
 
         # Start the update thread
         self.stop_event.clear()
@@ -324,7 +346,7 @@ class TUIApp:
 
     def _update_loop(self):
         """Background thread that updates the UI periodically."""
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() and not self.should_exit:
             try:
                 # Update status statistics
                 self.update_status_stats()
@@ -332,11 +354,39 @@ class TUIApp:
                 # Update the UI
                 self.update()
 
+                # Check for keyboard input
+                self._check_keyboard_input()
+
                 # Sleep for a short time
-                time.sleep(0.5)
+                time.sleep(0.1)
             except Exception as e:
                 logger.error(f"Error in update loop: {e}")
                 time.sleep(1.0)  # Sleep longer on error
+
+    def _check_keyboard_input(self):
+        """Check for keyboard input to handle graceful shutdown."""
+        try:
+            import msvcrt
+            if msvcrt.kbhit():
+                key = msvcrt.getch().decode('utf-8').lower()
+                if key == 'q':
+                    logger.info("Received 'q' key, shutting down gracefully...")
+                    self.should_exit = True
+                    self.status_panel.update_status("Shutting down...")
+        except ImportError:
+            # msvcrt is not available on non-Windows platforms
+            try:
+                import sys, select
+                # Check if there's input available
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    key = sys.stdin.read(1).lower()
+                    if key == 'q':
+                        logger.info("Received 'q' key, shutting down gracefully...")
+                        self.should_exit = True
+                        self.status_panel.update_status("Shutting down...")
+            except (ImportError, Exception) as e:
+                # If we can't check for keyboard input, just continue
+                pass
 
     def update_status_stats(self):
         """Update the status panel with current statistics."""
@@ -349,10 +399,10 @@ class TUIApp:
 
             # Display command-line arguments
             if self.input_dir:
-                self.status_panel.update_stats("Input Directory", os.path.basename(self.input_dir))
+                self.status_panel.update_stats("Input Directory", self.input_dir)
 
-            if self.output_file:
-                self.status_panel.update_stats("Output File", os.path.basename(self.output_file))
+            if self.results_file:
+                self.status_panel.update_stats("Results File", self.results_file)
 
             if self.model_type:
                 model_info = f"{self.model_type}"
@@ -411,25 +461,6 @@ class TUIApp:
             active_tasks = len(self.progress_manager.tasks)
             self.status_panel.update_stats("Active Tasks", active_tasks)
 
-            # Calculate task progress statistics
-            completed_tasks = 0
-            total_tasks = 0
-
-            # Iterate through all tasks to get their progress
-            for task_id, rich_task_id in self.progress_manager.tasks.items():
-                try:
-                    task = self.progress_manager.progress._tasks.get(rich_task_id)
-                    if task:
-                        completed_tasks += task.completed
-                        total_tasks += task.total if task.total is not None else 0
-                except Exception:
-                    pass  # Skip tasks that can't be accessed
-
-            # Update task progress statistics
-            if total_tasks > 0:
-                progress_percent = (completed_tasks / total_tasks) * 100
-                self.status_panel.update_stats("Overall Progress", f"{progress_percent:.1f}% ({completed_tasks}/{total_tasks})")
-
             # Section: System
             self.status_panel.update_stats("[bold magenta]System[/bold magenta]", "")
 
@@ -449,7 +480,7 @@ class TUIApp:
             skipped_directories (int): Number of directories skipped (already processed)
         """
         self.input_dir = args.input_dir
-        self.output_file = args.output
+        self.results_file = args.results_file
         self.model_type = args.model_type
         self.model_name = args.model_name if args.model_name else ("gpt-4o" if args.model_type == "openai" else "mistral")
         self.workers = args.workers
@@ -475,11 +506,35 @@ class TUIApp:
         Returns:
             Any: The return value of the function.
         """
+        result = None
         try:
             self.start()
-            return func(*args, **kwargs)
+
+            # Create a thread to run the function
+            import threading
+            func_thread = threading.Thread(target=lambda: self._run_func(func, args, kwargs))
+            func_thread.daemon = True
+            func_thread.start()
+
+            # Wait for the function to complete or for the user to request exit
+            while func_thread.is_alive() and not self.should_exit:
+                time.sleep(0.1)
+
+            if self.should_exit:
+                logger.info("Graceful shutdown requested, stopping processing...")
+                # Return a special value to indicate graceful shutdown
+                result = 0
+            else:
+                # Function completed normally
+                result = self._func_result
+
+            return result
         finally:
             self.stop()
+
+    def _run_func(self, func: Callable, args, kwargs):
+        """Run the function and store its result."""
+        self._func_result = func(*args, **kwargs)
 
 
 # Create a global TUI app instance
