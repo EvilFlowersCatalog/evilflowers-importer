@@ -9,6 +9,32 @@ import logging
 import pandas as pd
 from tqdm import tqdm
 
+def clean_metadata_item(item):
+    """
+    Clean metadata item by handling special fields.
+
+    Args:
+        item (dict): Metadata item to clean
+
+    Returns:
+        dict: Cleaned metadata item
+    """
+    clean_item = item.copy()
+
+    # Remove full_text field if it exists to avoid large files
+    if 'full_text' in clean_item:
+        del clean_item['full_text']
+
+    # Convert authors list to pipe-separated string
+    if 'authors' in clean_item and isinstance(clean_item['authors'], list):
+        clean_item['authors'] = '|'.join(clean_item['authors'])
+
+    # Convert title list to string if it's a list
+    if 'title' in clean_item and isinstance(clean_item['title'], list):
+        clean_item['title'] = ' '.join(clean_item['title'])
+
+    return clean_item
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -41,16 +67,7 @@ def create_output_files(directories_metadata, output_dir):
             # Use a nested progress bar for cleaning metadata
             with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
                 for metadata in directories_metadata:
-                    clean_metadata_item = metadata.copy()
-                    # Remove full_text field if it exists to avoid large files
-                    if 'full_text' in clean_metadata_item:
-                        del clean_metadata_item['full_text']
-
-                    # Convert authors list to pipe-separated string
-                    if 'authors' in clean_metadata_item and isinstance(clean_metadata_item['authors'], list):
-                        clean_metadata_item['authors'] = '|'.join(clean_metadata_item['authors'])
-
-                    clean_metadata.append(clean_metadata_item)
+                    clean_metadata.append(clean_metadata_item(metadata))
                     clean_pbar.update(1)
 
             pbar.update(1)
@@ -113,16 +130,7 @@ def create_parquet_file(directories_metadata, output_path):
             # Use a nested progress bar for cleaning metadata
             with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
                 for metadata in directories_metadata:
-                    clean_metadata_item = metadata.copy()
-                    # Remove full_text field if it exists to avoid large files
-                    if 'full_text' in clean_metadata_item:
-                        del clean_metadata_item['full_text']
-
-                    # Convert authors list to pipe-separated string
-                    if 'authors' in clean_metadata_item and isinstance(clean_metadata_item['authors'], list):
-                        clean_metadata_item['authors'] = '|'.join(clean_metadata_item['authors'])
-
-                    clean_metadata.append(clean_metadata_item)
+                    clean_metadata.append(clean_metadata_item(metadata))
                     clean_pbar.update(1)
 
             pbar.update(1)
@@ -171,16 +179,7 @@ def create_excel_file(directories_metadata, output_path):
             # Use a nested progress bar for cleaning metadata
             with tqdm(total=len(directories_metadata), desc="Cleaning metadata", leave=False) as clean_pbar:
                 for metadata in directories_metadata:
-                    clean_metadata_item = metadata.copy()
-                    # Remove full_text field if it exists to avoid large Excel files
-                    if 'full_text' in clean_metadata_item:
-                        del clean_metadata_item['full_text']
-
-                    # Convert authors list to pipe-separated string
-                    if 'authors' in clean_metadata_item and isinstance(clean_metadata_item['authors'], list):
-                        clean_metadata_item['authors'] = '|'.join(clean_metadata_item['authors'])
-
-                    clean_metadata.append(clean_metadata_item)
+                    clean_metadata.append(clean_metadata_item(metadata))
                     clean_pbar.update(1)
 
             pbar.update(1)

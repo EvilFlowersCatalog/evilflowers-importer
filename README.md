@@ -8,6 +8,7 @@ A CLI application for extracting book metadata from local directories and creati
 - Extract book metadata (title, authors, publisher, year, ISBN, DOI, summary) using AI models (OpenAI API or local models)
 - Process text files to extract metadata using advanced NLP techniques
 - Generate Parquet and CSV files with book metadata and directory paths
+- Track progress and resume processing from where you left off
 
 ## Installation
 
@@ -34,6 +35,7 @@ python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_D
 - `--verbose`: (Optional) Enable verbose output with detailed logging
 - `--workers`: (Optional) Number of worker threads for parallel processing. If not provided, uses the default based on CPU count.
 - `--limit`: (Optional) Limit the number of directories to process. Useful for debugging
+- `--ignore-progress`: (Optional) Ignore existing progress and process all directories from scratch
 - `--help`: Show help message
 
 ### Extended example
@@ -123,6 +125,36 @@ If you encounter issues, try the following:
 4. The AI-extracted metadata may still contain errors. The output files are intended to be manually reviewed and corrected before being used for import to an OPDS server.
 
 5. The application uses a recursive summarization technique to create concise summaries of books, regardless of their length.
+
+6. The application tracks progress and saves it to a `progress.parquet` file in the output directory. If the script is interrupted, you can run it again with the same input and output directories to continue from where you left off. Use the `--ignore-progress` flag if you want to start from scratch.
+
+## Progress Tracking
+
+The application now includes a progress tracking feature that allows you to resume processing from where you left off if the script is interrupted. This is particularly useful for large collections of books or when using slower AI models.
+
+### How Progress Tracking Works
+
+1. As each book directory is processed, the application saves the extracted metadata to a `progress.parquet` file in the output directory.
+2. If the script is interrupted (e.g., by a power outage, system crash, or manual termination), you can run it again with the same input and output directories.
+3. The application will automatically detect the `progress.parquet` file, load the previously processed directories, and continue with the remaining ones.
+4. The final output files (`index.parquet` and `index.csv`) are still created at the end of the process, containing metadata for all books.
+
+### Command-Line Options
+
+- Use the `--ignore-progress` flag if you want to start from scratch and reprocess all directories, ignoring any existing progress.
+
+### Example
+
+```bash
+# Initial run
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
+
+# If interrupted, continue from where you left off
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY
+
+# Start from scratch, ignoring previous progress
+python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output-dir OUTPUT_DIRECTORY --ignore-progress
+```
 
 ## Using Local Models with Ollama
 

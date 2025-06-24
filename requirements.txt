@@ -6,3 +6,4 @@ tiktoken
 pyarrow
 fastparquet
 requests
+jupyterlab

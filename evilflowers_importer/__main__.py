@@ -9,6 +9,7 @@ and creating output files with the results.
 import argparse
 import os
 import logging
+import pandas as pd
 from tqdm import tqdm
 
 from evilflowers_importer.ai import AIExtractor
@@ -77,6 +78,12 @@ def parse_arguments():
         type=int,
         default=None,
         help='Limit the number of directories to process. Useful for debugging.'
+    )
+
+    parser.add_argument(
+        '--ignore-progress',
+        action='store_true',
+        help='Ignore existing progress and process all directories from scratch.'
     )
 
     return parser.parse_args()
@@ -148,16 +155,39 @@ def main():
             model_name=model_name
         )
 
-        # Extract metadata from each directory with progress bar
+        # Define progress file path
+        progress_file = os.path.join(args.output_dir, "progress.parquet")
+
+        # Create output directory if it doesn't exist
+        os.makedirs(args.output_dir, exist_ok=True)
+
+        # Load existing progress if available and not ignoring progress
         directories_metadata = []
+        processed_dirs = set()
+
+        if os.path.exists(progress_file) and not args.ignore_progress:
+            try:
+                logger.info(f"Loading existing progress from {progress_file}")
+                progress_df = pd.read_parquet(progress_file)
+                directories_metadata = progress_df.to_dict('records')
+                processed_dirs = set(progress_df['dirname'].tolist())
+                logger.info(f"Loaded progress for {len(processed_dirs)} directories")
+            except Exception as e:
+                logger.error(f"Failed to load progress file: {e}")
+                logger.info("Starting with empty progress")
+        elif args.ignore_progress and os.path.exists(progress_file):
+            logger.info("Ignoring existing progress as requested")
+
+        # Filter out already processed directories
+        directories_to_process = [d for d in directories if d not in processed_dirs]
 
         # Log information about the parallelism
         workers_info = f" with {args.workers} workers" if args.workers else " with auto workers"
-        logger.info(f"Processing {len(directories)} directories{workers_info}")
+        logger.info(f"Processing {len(directories_to_process)} directories{workers_info} ({len(processed_dirs)} already processed)")
 
         # Create a top-level progress bar for processing files
-        with tqdm(total=len(directories), desc=f"Processing directories{workers_info}") as pbar:
-            for directory in directories:
+        with tqdm(total=len(directories_to_process), desc=f"Processing directories{workers_info}") as pbar:
+            for directory in directories_to_process:
                 # Create a nested progress bar for processing
                 # The total is set to 3 to represent: 1) checking files, 2) processing content, 3) finalizing metadata
                 with tqdm(total=3, desc=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
@@ -176,7 +206,21 @@ def main():
                 # Update the top-level progress bar
                 pbar.update(1)
 
-        # Create output files with a progress bar
+                # Save progress after each directory is processed
+                with tqdm(total=1, desc=f"Saving progress for {os.path.basename(directory)}", leave=False) as save_pbar:
+                    # Create a DataFrame from the current metadata
+                    progress_df = pd.DataFrame(directories_metadata)
+
+                    # Ensure dirname (directory path) is the first column
+                    if 'dirname' in progress_df.columns:
+                        cols = ['dirname'] + [col for col in progress_df.columns if col != 'dirname']
+                        progress_df = progress_df[cols]
+
+                    # Save to parquet file
+                    progress_df.to_parquet(progress_file, index=False)
+                    save_pbar.update(1)
+
+        # Create final output files with a progress bar
         with tqdm(total=1, desc="Creating output files", leave=True) as output_pbar:
             parquet_path, csv_path = create_output_files(directories_metadata, args.output_dir)
             output_pbar.update(1)
