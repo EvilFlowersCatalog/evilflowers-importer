@@ -306,22 +306,10 @@ class TUIApp:
         self._func_result = None
 
         # Add shutdown message to status panel
-        self.status_panel.update_stats("Shutdown", "Press 'q' or Ctrl+C to exit")
+        self.status_panel.update_stats("Shutdown", "Press 'q' to exit")
 
     def start(self):
         """Start the TUI application."""
-        # Set up keyboard event handler
-        import signal
-
-        # Handle Ctrl+C gracefully
-        def signal_handler(sig, frame):
-            logger.info("Received interrupt signal, shutting down gracefully...")
-            self.should_exit = True
-            self.status_panel.update_status("Shutting down...")
-
-        # Register the signal handler
-        signal.signal(signal.SIGINT, signal_handler)
-
         # Start the live display
         self.live.start(refresh=True)
 
