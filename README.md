@@ -1,14 +1,16 @@
 # EvilFlowers Book Import
 
-A CLI application for extracting book metadata from local directories and creating output files with the results.
+A TUI (Text User Interface) application for extracting book metadata from local directories and creating output files with the results.
 
 ## Features
 
+- Modern TUI with progress bars and log panel using the rich library
 - List directories containing book data
 - Extract book metadata (title, authors, publisher, year, ISBN, DOI, summary) using AI models (OpenAI API or local models)
 - Process text files to extract metadata using advanced NLP techniques
 - Generate Parquet and CSV files with book metadata and directory paths
 - Track progress and resume processing from where you left off
+- Real-time status updates and statistics
 
 ## Installation
 
@@ -24,6 +26,16 @@ A CLI application for extracting book metadata from local directories and creati
 # Main usage
 python -m evilflowers_importer --input-dir INPUT_DIRECTORY --output OUTPUT_DIRECTORY
 ```
+
+When you run the application, a TUI (Text User Interface) will be displayed with the following components:
+- **Status Panel**: Shows the current status of the application and statistics
+- **Progress Panel**: Shows progress bars for the current operations
+- **Log Panel**: Shows log messages from the application
+
+The TUI provides real-time feedback on the processing of book directories, including:
+- Current status and statistics
+- Progress bars for overall processing and individual tasks
+- Log messages for detailed information
 
 ### Arguments
 
@@ -73,9 +85,17 @@ The application generates both Parquet and CSV files in the specified output dir
 - summary: Book summary
 - cover_image: Path to the book cover image (if available)
 
-## AI Module Architecture
+## Application Architecture
 
-The application uses an object-oriented approach for metadata extraction with an abstraction layer for AI models:
+The application uses an object-oriented approach for metadata extraction with an abstraction layer for AI models and a modern TUI interface:
+
+### TUI Components
+
+- **TUIApp**: Main TUI application that manages the layout and display
+- **LogPanel**: Panel that displays log messages
+- **ProgressManager**: Manager for rich progress bars
+- **StatusPanel**: Panel that displays status information
+- **RichProgressBar**: A tqdm-compatible progress bar that uses rich
 
 ### Core Components
 
@@ -100,16 +120,18 @@ This modular design makes the code more maintainable and extensible, allowing yo
 
 If you encounter issues, try the following:
 
-1. **Detailed Logging**: Use the `--verbose` flag to enable detailed logging, including:
+1. **Check the Log Panel**: The TUI includes a log panel at the bottom of the screen that displays detailed information about the application's operation. This can help identify issues. The log panel shows the most recent logs and automatically rotates to keep the display manageable.
+
+2. **Detailed Logging**: Use the `--verbose` flag to enable more detailed logging in the log panel, including:
    - Directory listings
    - File processing
    - Metadata extraction
 
-2. **Check Permissions**: Ensure you have read permissions for all directories and files you're trying to process.
+3. **Check Permissions**: Ensure you have read permissions for all directories and files you're trying to process.
 
-3. **Check File Structure**: The application expects a specific directory structure with text files in the Kramerius subdirectory and cover images in the Cover subdirectory.
+4. **Check File Structure**: The application expects a specific directory structure with text files in the Kramerius subdirectory and cover images in the Cover subdirectory.
 
-4. **API Key**: Ensure your OpenAI API key is valid and has sufficient credits.
+5. **API Key**: Ensure your OpenAI API key is valid and has sufficient credits.
 
 ## Notes
 

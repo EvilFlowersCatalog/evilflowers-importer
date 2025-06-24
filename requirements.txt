@@ -7,3 +7,4 @@ pyarrow
 fastparquet
 requests
 jupyterlab
+rich

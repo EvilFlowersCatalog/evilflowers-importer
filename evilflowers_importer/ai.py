@@ -8,7 +8,6 @@ This is a compatibility layer that uses the new AI facade.
 import os
 import logging
 from typing import Dict, Any
-from tqdm import tqdm
 
 from evilflowers_importer.ai_facade import AIFacade, BookMetadata
 
@@ -49,7 +48,7 @@ class AIExtractor:
         Args:
             client: Local file system client
             directory (str): Directory path
-            progress_bar (tqdm, optional): Progress bar to update. Defaults to None.
+            progress_bar (RichProgressBar, optional): Progress bar to update. Defaults to None.
 
         Returns:
             dict: Extracted metadata

@@ -37,3 +37,4 @@ ENV/
 *.csv
 *.parquet
 data/
+output/

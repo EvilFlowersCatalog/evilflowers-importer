@@ -11,7 +11,7 @@ import json
 from typing import TypedDict, Optional, List, Dict, Any, Tuple
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
+from evilflowers_importer.tui import RichProgressBar
 
 from evilflowers_importer.ai_models import AIModelInterface, AIModelFactory
 
@@ -153,7 +153,7 @@ class TextChunker:
         all_chunks = []
 
         # Create a progress bar for parallel text chunking
-        with tqdm(total=total_pages, desc=f"Chunking text with {self.actual_workers} workers", leave=False) as pbar:
+        with RichProgressBar(total=total_pages, description=f"Chunking text with {self.actual_workers} workers", leave=False) as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 # Submit tasks to the executor
                 future_to_chunk = {
@@ -274,7 +274,7 @@ class Summarizer:
         logger.info(f"Summarizing {len(chunks)} chunks in parallel with {self.actual_workers} workers")
         summaries = []
 
-        with tqdm(total=len(chunks), desc=f"Summarizing chunks with {self.actual_workers} workers", leave=False) as pbar:
+        with RichProgressBar(total=len(chunks), description=f"Summarizing chunks with {self.actual_workers} workers", leave=False) as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 # Submit tasks to the executor
                 future_to_chunk = {
@@ -352,7 +352,7 @@ class Summarizer:
                 return self.final_summarize(summary_text, target_words)
 
             # Create a progress bar for recursive summarization
-            with tqdm(total=1, desc=f"Recursive summarization depth {current_depth+1}", leave=False) as pbar:
+            with RichProgressBar(total=1, description=f"Recursive summarization depth {current_depth+1}", leave=False) as pbar:
                 result = self.recursive_summarize(next_chunks, target_words, max_depth, current_depth + 1)
                 pbar.update(1)
             return result
@@ -462,7 +462,7 @@ class BookProcessor:
         logger.info(f"Processing book with {total_pages} pages using {self.max_workers} worker threads")
 
         # Create a progress bar for the overall book processing
-        with tqdm(total=4, desc=f"Processing book ({total_pages} pages)", leave=False) as pbar:
+        with RichProgressBar(total=4, description=f"Processing book ({total_pages} pages)", leave=False) as pbar:
             # Use first 3 pages for metadata (usually enough)
             first_pages = "\n".join([pages[k] for k in sorted(pages)[:3]])
             pbar.update(1)
@@ -541,7 +541,7 @@ class AIFacade:
         Args:
             client: Local file system client
             directory (str): Directory path
-            progress_bar (tqdm, optional): Progress bar to update. Defaults to None.
+            progress_bar (RichProgressBar, optional): Progress bar to update. Defaults to None.
 
         Returns:
             dict: Extracted metadata
@@ -610,7 +610,7 @@ class AIFacade:
                             progress_bar.set_description(f"Processing content from {os.path.basename(directory)} (workers: {self.actual_workers})")
 
                         # Load all pages into the dictionary
-                        with tqdm(total=len(text_files), desc="Loading text files", leave=False) as file_pbar:
+                        with RichProgressBar(total=len(text_files), description="Loading text files", leave=False) as file_pbar:
                             for file in text_files:
                                 try:
                                     # Extract page number from filename (assuming format like *_p0001.txt)
