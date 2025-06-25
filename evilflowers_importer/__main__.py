@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-EvilFlowers Book Import
+EvilFlowers Importer
 
-A CLI application for extracting book metadata from local directories
-and creating output files with the results.
+A powerful tool for importing data from various sources through an AI extraction pipeline
+to JSON files for the EvilFlowers OPDS catalog.
 """
 
 import argparse
@@ -23,19 +23,19 @@ logger = logging.getLogger(__name__)
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Extract book metadata from local directories and create output files.'
+        description='Import data from various sources through an AI extraction pipeline to JSON files.'
     )
 
     parser.add_argument(
         '--input-dir',
         required=True,
-        help='Path to the directory containing book directories'
+        help='Path to the input directory or connection string for the data source'
     )
 
     parser.add_argument(
         '--results-file',
         required=True,
-        help='Path to the JSON file where progress data will be stored'
+        help='Path to the JSON file where extracted data will be stored'
     )
 
     parser.add_argument(
@@ -74,20 +74,20 @@ def parse_arguments():
         '--limit',
         type=int,
         default=None,
-        help='Limit the number of directories to process. Useful for debugging.'
+        help='Limit the number of items to process. Useful for debugging.'
     )
 
     parser.add_argument(
         '--ignore-progress',
         action='store_true',
-        help='Ignore existing progress and process all directories from scratch.'
+        help='Ignore existing progress and process all items from scratch.'
     )
 
     parser.add_argument(
         '--strategy',
         choices=['kramerius', 'dummy'],
         default='kramerius',
-        help='The import strategy to use. "kramerius" uses the current directory structure, "dummy" is a boilerplate strategy.'
+        help='The import strategy to use. "kramerius" uses the file system structure, "dummy" is a boilerplate strategy.'
     )
 
     return parser.parse_args()
@@ -125,75 +125,75 @@ def main():
     )
 
     # List items to process using the strategy
-    directories = ai_extractor.list_items(client, args.input_dir)
+    items = ai_extractor.list_items(client, args.input_dir)
 
     # Load existing progress if available and not ignoring progress
-    directories_metadata = []
-    processed_dirs = set()
+    items_metadata = []
+    processed_items = set()
 
     if os.path.exists(args.results_file) and not args.ignore_progress:
         try:
             logger.info(f"Loading existing progress from {args.results_file}")
             progress_df = pd.read_json(args.results_file, orient="records")
-            directories_metadata = progress_df.to_dict('records')
+            items_metadata = progress_df.to_dict('records')
 
             # Check if 'dirname' column exists in the progress DataFrame
             if 'dirname' in progress_df.columns:
-                processed_dirs = set(progress_df['dirname'].tolist())
-                logger.info(f"Loaded progress for {len(processed_dirs)} directories")
+                processed_items = set(progress_df['dirname'].tolist())
+                logger.info(f"Loaded progress for {len(processed_items)} items")
             else:
                 logger.warning("Progress file does not contain 'dirname' column. Starting with empty progress.")
-                processed_dirs = set()
+                processed_items = set()
         except Exception as e:
             logger.error(f"Failed to load progress file: {e}")
             logger.info("Starting with empty progress")
     elif args.ignore_progress and os.path.exists(args.results_file):
         logger.info("Ignoring existing progress as requested")
 
-    # Filter out already processed directories
-    # Ensure we're comparing the same format of directory paths
-    directories_to_process = []
-    for d in directories:
-        # Check if this directory has already been processed
-        if d not in processed_dirs:
-            directories_to_process.append(d)
+    # Filter out already processed items
+    # Ensure we're comparing the same format of item paths
+    items_to_process = []
+    for item in items:
+        # Check if this item has already been processed
+        if item not in processed_items:
+            items_to_process.append(item)
 
-    # Log information about directories being processed
-    logger.debug(f"Total directories: {len(directories)}")
-    logger.debug(f"Already processed: {len(processed_dirs)}")
-    logger.debug(f"To be processed: {len(directories_to_process)}")
+    # Log information about items being processed
+    logger.debug(f"Total items: {len(items)}")
+    logger.debug(f"Already processed: {len(processed_items)}")
+    logger.debug(f"To be processed: {len(items_to_process)}")
 
-    # Limit the number of directories to process if specified
+    # Limit the number of items to process if specified
     if args.limit is not None:
-        logger.info(f"Limiting to {args.limit} remaining directories")
-        directories_to_process = directories_to_process[:args.limit]
-        logger.debug(f"After limit: {len(directories_to_process)} to be processed")
+        logger.info(f"Limiting to {args.limit} remaining items")
+        items_to_process = items_to_process[:args.limit]
+        logger.debug(f"After limit: {len(items_to_process)} to be processed")
 
     # Log information about the parallelism
     workers_info = f" with {args.workers} workers" if args.workers else " with auto workers"
-    logger.info(f"Processing {len(directories_to_process)} directories{workers_info} ({len(processed_dirs)} already processed)")
+    logger.info(f"Processing {len(items_to_process)} items{workers_info} ({len(processed_items)} already processed)")
 
     # Set up TUI app statistics and arguments
-    tui_app.set_args(args, len(directories), len(processed_dirs))
-    tui_app.total_directories = len(directories_to_process)
-    tui_app.processed_directories = 0
+    tui_app.set_args(args, len(items), len(processed_items))
+    tui_app.total_directories = len(items_to_process)  # Keep property name for compatibility
+    tui_app.processed_directories = 0  # Keep property name for compatibility
     tui_app.start_time = time.time()
 
     # Create a top-level progress bar for processing files
-    with RichProgressBar(total=len(directories_to_process), description=f"Processing directories{workers_info}") as pbar:
-        for directory in directories_to_process:
-            # Update current directory in TUI app
-            tui_app.current_directory = directory
+    with RichProgressBar(total=len(items_to_process), description=f"Processing items{workers_info}") as pbar:
+        for item in items_to_process:
+            # Update current item in TUI app
+            tui_app.current_directory = item  # Keep property name for compatibility
             # Create a nested progress bar for processing
             # The total is set to 3 to represent: 1) checking files, 2) processing content, 3) finalizing metadata
-            with RichProgressBar(total=3, description=f"Processing {os.path.basename(directory)}", leave=False) as nested_pbar:
+            with RichProgressBar(total=3, description=f"Processing {os.path.basename(item)}", leave=False) as nested_pbar:
                 # Process item using the strategy
-                metadata = ai_extractor.process_item(client, directory, nested_pbar)
+                metadata = ai_extractor.process_item(client, item, nested_pbar)
 
-                # Add directory path to metadata
-                metadata['dirname'] = directory
+                # Add item path to metadata
+                metadata['dirname'] = item  # Keep field name for compatibility
 
-                directories_metadata.append(metadata)
+                items_metadata.append(metadata)
 
                 # Ensure the nested progress bar is completed
                 if nested_pbar.n < nested_pbar.total:
@@ -202,13 +202,13 @@ def main():
             # Update the top-level progress bar
             pbar.update(1)
 
-            # Update processed directories count in TUI app
-            tui_app.processed_directories += 1
+            # Update processed items count in TUI app
+            tui_app.processed_directories += 1  # Keep property name for compatibility
 
-            # Save progress after each directory is processed
-            with RichProgressBar(total=1, description=f"Saving progress for {os.path.basename(directory)}", leave=False) as save_pbar:
+            # Save progress after each item is processed
+            with RichProgressBar(total=1, description=f"Saving progress for {os.path.basename(item)}", leave=False) as save_pbar:
                 # Create a DataFrame from the current metadata
-                progress_df = pd.DataFrame(directories_metadata)
+                progress_df = pd.DataFrame(items_metadata)
 
                 # Ensure dirname (directory path) is the first column
                 if 'dirname' in progress_df.columns:
