@@ -1,6 +1,6 @@
 # EvilFlowers Importer
 
-A powerful tool for importing data from various sources through an AI extraction pipeline to JSON files for the 
+A tool for importing data from various sources through an AI extraction pipeline to JSON files for the 
 EvilFlowers OPDS catalog.
 
 ![EvilFlowers Importer TUI](docs/tui.png)
