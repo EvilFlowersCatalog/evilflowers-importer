@@ -8,3 +8,8 @@ fastparquet
 requests
 jupyterlab
 rich
+matplotlib
+seaborn
+isbnlib
+ipywidgets
+Pillow

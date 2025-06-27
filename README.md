@@ -3,7 +3,7 @@
 A tool for importing data from various sources through an AI extraction pipeline to JSON files for the 
 EvilFlowers OPDS catalog.
 
-![EvilFlowers Importer TUI](docs/tui.png)
+![EvilFlowers Importer TUI](docs/images/tui.png)
 
 ## Overview
 
@@ -296,3 +296,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+## Acknowledgment
+
+This open-source project is maintained by students and PhD candidates of the
+[Faculty of Informatics and Information Technologies](https://www.fiit.stuba.sk/) at the Slovak University of
+Technology. The software is utilized by the university, aligning with its educational and research activities. We
+appreciate the faculty's support of our work and their contribution to the open-source community.
+
+![](docs/images/fiit.png)
